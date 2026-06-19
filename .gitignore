@@ -1,0 +1,46 @@
+# Build output
+bin/
+obj/
+out/
+build/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.vscode/
+.idea/
+
+# .NET
+*.pdb
+*.dll.config
+*.publish.xml
+publish/
+.nuget/
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+PublishProfiles/
+**/Properties/launchSettings.json
+
+# vcpkg
+vcpkg_installed/
+vcpkg/
+
+# Logs / dumps
+logs/
+crashes/
+*.log
+*.dmp
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local dev
+local/
+secrets/
+*.local.json
+*.secret

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>CauldronServer</RootNamespace>
+    <UserSecretsId>cauldron-server-dev</UserSecretsId>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CauldronServer.Tests" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Serilog.Formatting.Compact" />
+    <PackageReference Include="LiteNetLib" />
+    <PackageReference Include="MessagePack" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../shared/Cauldron.Protocol/Cauldron.Protocol.csproj" />
+    <ProjectReference Include="../../shared/Cauldron.Abstractions/Cauldron.Abstractions.csproj" />
+    <ProjectReference Include="../Cauldron.SourceQuery/Cauldron.SourceQuery.csproj" />
+    <ProjectReference Include="../Cauldron.Rcon/Cauldron.Rcon.csproj" />
+    <ProjectReference Include="../Cauldron.Persistence/Cauldron.Persistence.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Cauldron.Integration.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/server/CauldronServer/CauldronServer.csproj" />
+    <ProjectReference Include="../../src/server/Cauldron.SourceQuery/Cauldron.SourceQuery.csproj" />
+    <ProjectReference Include="../../src/server/Cauldron.Rcon/Cauldron.Rcon.csproj" />
+    <ProjectReference Include="../../src/shared/Cauldron.Protocol/Cauldron.Protocol.csproj" />
+  </ItemGroup>
+</Project>

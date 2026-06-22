@@ -3,8 +3,7 @@ using Xunit;
 namespace Cauldron.Integration.Tests;
 
 // Skeleton test so the project compiles before the real integration tests are
-// ported from Beacon.Integration.Tests (fake overlay over pipe + fake MenuState
-// sequence).
+// added (fake overlay over pipe + fake menu-state sequence).
 public class PlaceholderTests
 {
     [Fact]

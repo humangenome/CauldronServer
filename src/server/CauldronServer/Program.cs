@@ -60,6 +60,10 @@ public static class Program
             builder.Services.AddHostedService<CauldronLogTailService>();
             builder.Services.AddHostedService<CauldronHttpService>();
             builder.Services.AddHostedService<RosterFileWatcherService>();
+            // Authoritative A2S player-count source (v0.1.6): tails the host mod's
+            // ground-truth roster line in ws-ue.log. UE4SS sig-scan is dead on this build
+            // so the legacy roster.json producer never runs; this replaces it.
+            builder.Services.AddHostedService<HostRosterLogService>();
 
             var host = builder.Build();
 

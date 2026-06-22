@@ -3,6 +3,11 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.6] - 2026-06-22
+
+### Added
+- Live A2S player count: the server now tails the host mod's authoritative roster line and reports the real connected-player list to Source query and the HTTP `/players` endpoint. The empty server reports 0, and the headless host's own slot is excluded from the count.
+
 ## [0.1.1] - 2026-06-19
 
 ### Fixed

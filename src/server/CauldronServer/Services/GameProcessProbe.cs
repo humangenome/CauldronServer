@@ -15,7 +15,12 @@ namespace CauldronServer.Services;
 public static class GameProcessProbe
 {
     // Matches Hercules-Win64-Shipping(.exe); ProcessName has no extension.
-    private const string ExeNameFragment = "WitchspireGame";
+    // Witchspire's shipping UE module is "Hercules", so the live process is
+    // Hercules-Win64-Shipping — match on "Hercules". The previous fragment
+    // ("WitchspireGame") never matched the real process, so IsGameOnline's
+    // pidfile path always returned false and A2S stayed silently Offline on
+    // direct-IP hosts (where there's no in-game plugin heartbeat).
+    private const string ExeNameFragment = "Hercules";
 
     public static bool IsAlive(string? pidFile)
     {

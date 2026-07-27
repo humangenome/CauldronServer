@@ -7,7 +7,7 @@ namespace CauldronServer.Static;
 /// polls <c>GET /api/v1/map/state</c> every <see cref="PollIntervalMs"/>
 /// and renders player dots on a flat dark backdrop.
 ///
-/// Basemap capture (top-down screenshot of the host map) is a follow-on; until
+/// Basemap capture (top-down screenshot of L_StarterIsland) is a follow-on; until
 /// it lands the page draws a gradient + grid so the dots have spatial
 /// context.
 /// </summary>

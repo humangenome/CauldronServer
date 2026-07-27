@@ -12,16 +12,19 @@ namespace CauldronServer.Services;
 /// (<see cref="SourceQueryHostedService"/>) and the HTTP players endpoint
 /// (<see cref="CauldronHttpService"/>) reflect live player counts and names.
 ///
-/// The producer is the server-side <c>CauldronRoster</c> UE4SS Lua mod
-/// (<c>dist/ue4ss-server/Mods/CauldronRoster/Scripts/main.lua</c>). It hooks
-/// <c>GameModeBase:K2_PostLogin</c> + <c>GameModeBase:Logout</c> and
-/// rewrites the JSON atomically every 5 seconds (also on join/leave).
+/// LEGACY / DORMANT on Witchspire. This is the inherited file-drop roster
+/// path: it expects a UE4SS Lua mod to write <c>roster.json</c> next to the
+/// executable. Cauldron ships no such mod, so on a real Witchspire host this
+/// service never sees a file and stays idle.
 ///
-/// File-based exchange was chosen over an FFI Lua → native plugin → IPC
-/// bridge because (a) the Cauldron.dll plugin has no UE reflection access
-/// to <c>GameState.PlayerArray</c>, (b) Lua → C# round-trip is single
-/// reader / single writer / single instance, and (c) atomic rename
-/// (<c>roster.json.tmp → roster.json</c>) gives us a clean reader path.
+/// The LIVE roster producer is the AngelScript host mod, which emits the
+/// single-line <c>CAULDRON_HOST: roster count=N players=...</c> contract into
+/// the UE log; <see cref="HostRosterLogService"/> tails that line and is what
+/// actually populates <see cref="PipeServerState"/> today.
+///
+/// Kept because it is harmless when the file is absent and it remains the
+/// drop-in path if a future host mod prefers a JSON file over a log line.
+/// Remove it, and its registration in <c>Program.cs</c>, if that never happens.
 /// </summary>
 public sealed class RosterFileWatcherService : BackgroundService
 {

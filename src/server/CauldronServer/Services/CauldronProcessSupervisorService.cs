@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Cauldron.Abstractions;
 using CauldronServer.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -8,8 +9,8 @@ using Microsoft.Extensions.Options;
 namespace CauldronServer.Services;
 
 /// <summary>
-/// Launches the Witchspire headless host, applies the host package's Engine.ini
-/// template on every launch, watches the process, and restarts on unexpected exit.
+/// Launches the Witchspire headless host, runs the host package's launch prep
+/// before every start, watches the process, and restarts on unexpected exit.
 ///
 /// Crash policy: if Witchspire exits within MinHealthyUptimeSeconds, treat as
 /// "boot loop" and back off exponentially. After a stable run, exit codes
@@ -25,23 +26,29 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
     private readonly CauldronServerOptions _opts;
     private readonly HmacKeyService _hmac;
     private readonly CauldronRestartCoordinator _coordinator;
+    private readonly IHostLaunchPrep _launchPrep;
 
     private const int MinHealthyUptimeSeconds = 60;
     private const int MaxBackoffSeconds = 300;
     public const string CauldronCanonicalSaveSlot = "savegame_0";
 
-    // Witchspire is an AngelScript title with a session-based join transport, not stock
-    // UE IpNetDriver. The host comes up as a session-based listen server driven by the
-    // AngelScript host mod:
-    //   - The host package supplies the headless-host launch prep (applied as an
-    //     Engine.ini template before every launch — the engine rewrites it each run).
-    //   - The host mod (deployed under <game>\Hercules\Script\Mods\Cauldron\) opens the
-    //     listen world (L_StarterIsland) and publishes the joinable session.
-    //   - The launch must be interactive (session 1); a non-interactive service
-    //     (session 0) cannot complete the host's auth prep — see the session guard in
-    //     LaunchGame.
-    // In a managed deploy GameInstallRoot is empty, so this supervisor stays idle and
-    // the host's launch script owns the launch. The path below is the self-host path.
+    // Witchspire is an AngelScript title with a session-based join transport, not
+    // stock UE IpNetDriver. The host comes up as a session-based listen server driven
+    // by the AngelScript host mod:
+    //   - The host package's launch prep (IHostLaunchPrep, resolved by
+    //     HostLaunchPrepLoader) satisfies the Steam/EOS platform prerequisites and
+    //     writes the user-scope Engine.ini before EVERY launch — the engine rewrites
+    //     that file each run.
+    //   - The CauldronHost.as mod (deployed into <game>\Hercules\Script\Mods\Cauldron\)
+    //     signs in, calls UHercOnlineSubsystem::CreateSession(L_StarterIsland, name),
+    //     and opens the listen world.
+    //   - LAUNCH MUST BE IN SESSION 1 (interactive): the host login persists its
+    //     credential through Windows DPAPI, which fails in session 0 (a service). When
+    //     this supervisor owns the lifecycle (self-host) it MUST run interactively —
+    //     see the session-0 guard in LaunchGame.
+    // In a managed deploy GameInstallRoot is EMPTY, so this supervisor stays idle and
+    // the host's launch script owns the launch; the path below is the SELF-HOST path
+    // and runs the same prep.
     private const string CauldronMapAssetName = "L_StarterIsland";
 
     // Witchspire ships ONE shipping exe (host + client). The packaged project dir is
@@ -59,12 +66,14 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
         ILogger<CauldronProcessSupervisorService> log,
         IOptions<CauldronServerOptions> opts,
         HmacKeyService hmac,
-        CauldronRestartCoordinator coordinator)
+        CauldronRestartCoordinator coordinator,
+        IHostLaunchPrep launchPrep)
     {
         _log = log;
         _opts = opts.Value;
         _hmac = hmac;
         _coordinator = coordinator;
+        _launchPrep = launchPrep;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -88,9 +97,9 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
                 await _coordinator.WaitForNoRestoreAsync(stoppingToken).ConfigureAwait(false);
 
                 // Host prep, every launch (the engine rewrites the Engine.ini each run):
-                //   1. Apply the host package's Engine.ini template.
-                //   2. Emit the AngelScript settings sidecar (the host mod reads it).
-                ApplyHostEngineIni();
+                //   1. Run the host package's launch prep (Engine.ini + platform prereqs).
+                //   2. Emit the AngelScript settings sidecar (CauldronHost.as reads it).
+                RunLaunchPrep();
                 EmitPluginConfig();
                 var start = DateTime.UtcNow;
 
@@ -142,10 +151,10 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
         if (!File.Exists(exe))
             throw new FileNotFoundException($"Witchspire binary not found at {exe}");
 
-        // SESSION-1 HARD REQUIREMENT: the host's auth prep stores its credential via
-        // Windows DPAPI, which needs an interactive user profile. If this supervisor is
-        // running in session 0 (a Windows service / non-interactive), the host login
-        // will fail and the world can never come up. Warn loudly so the operator runs
+        // SESSION-1 HARD REQUIREMENT: the host login persists its credential through
+        // Windows DPAPI, which fails without an interactive user profile. If this
+        // supervisor is running in session 0 (a Windows service / non-interactive) the
+        // login fails and the host can never come up. Warn loudly so the operator runs
         // it interactively (a managed deploy launches the host interactively, where
         // GameInstallRoot is empty and this path is skipped).
         if (OperatingSystem.IsWindows() && Process.GetCurrentProcess().SessionId == 0)
@@ -156,8 +165,9 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
                 "Run CauldronServer interactively, or let the hosting panel own the launch.");
         }
 
-        // Launch args (no map URL — the AngelScript host mod drives CreateSession from
-        // the menu; an -ExecCmds=open route reverts to the start menu on this build).
+        // Launch args (no map URL — the AngelScript CauldronHost mod drives
+        // CreateSession from the menu; an -ExecCmds=open route reverts to the start
+        // menu on this build).
         var args = string.Join(' ',
             "-nullrhi",
             "-unattended",
@@ -177,45 +187,31 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
         };
         psi.EnvironmentVariables["CAULDRON_INSTANCE"] = _opts.InstanceId;
         // NO_PROXY=* keeps the game's online REST traffic off any host HTTP proxy.
-        // (A misconfigured system proxy can also break the session transport — make
-        // sure the host's WinHTTP proxy is set to DIRECT, which is a host-level prereq
-        // not settable from here.)
+        // (The session transport also needs the SYSTEM WinHTTP proxy set to DIRECT,
+        // which is a host-level prereq and not settable from here.)
         psi.EnvironmentVariables["NO_PROXY"] = "*";
         return Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null");
     }
 
-    // Apply the host-package's Engine.ini template into the user-scope config dir
-    // before every launch. The engine rewrites this file each run, so the supervisor
-    // re-applies the host package's template (shipped as engine-ini\Engine.host.ini)
-    // on each start. The managed host package supplies the headless-host launch prep;
-    // self-hosters drop their own Engine.host.ini template into the package.
-    private void ApplyHostEngineIni()
+    // Run the host package's launch prep. The prep implementation manages the
+    // Steam/EOS auth prerequisites a headless Witchspire host needs and writes the
+    // user-scope Engine.ini; see HostLaunchPrepLoader for how one is resolved.
+    private void RunLaunchPrep()
     {
-        // Refuse to write into a vanilla Witchspire install (misconfigured GameUserDir).
-        if (LooksLikeVanillaInstallPath(_opts.GameUserDir))
+        try
         {
-            _log.LogError("Engine.ini write refused: GameUserDir={Dir} looks like a vanilla Witchspire install path. " +
-                          "Cauldron's user dir must be a separate folder (e.g. C:\\Cauldron\\UserDir).",
-                          _opts.GameUserDir);
-            return;
-        }
+            var exe = ResolveExecutablePath(_opts);
+            var context = new HostLaunchContext(
+                InstallRoot: string.IsNullOrWhiteSpace(_opts.GameInstallRoot) ? null : _opts.GameInstallRoot,
+                ExecutablePath: exe,
+                UserDir: _opts.GameUserDir,
+                ServerName: _opts.ServerName ?? string.Empty,
+                InstanceId: _opts.InstanceId,
+                PackageDirectory: AppContext.BaseDirectory);
 
-        var configDir = Path.Combine(_opts.GameUserDir, "Saved", "Config", "Windows");
-        Directory.CreateDirectory(configDir);
-        var enginePath = Path.Combine(configDir, "Engine.ini");
-
-        // Copy the host package's Engine.host.ini template if present; otherwise leave
-        // the engine's own config untouched. The template carries the host launch prep.
-        var template = Path.Combine(AppContext.BaseDirectory, "engine-ini", "Engine.host.ini");
-        if (File.Exists(template))
-        {
-            File.Copy(template, enginePath, overwrite: true);
-            _log.LogInformation("Applied host Engine.ini template at {Path}", enginePath);
+            _launchPrep.Prepare(context, msg => _log.LogInformation("{Prep}: {Message}", _launchPrep.Name, msg));
         }
-        else
-        {
-            _log.LogWarning("Host Engine.ini template not found at {Template} — skipping (host package may supply it elsewhere)", template);
-        }
+        catch (Exception ex) { _log.LogError(ex, "Host launch prep failed"); }
     }
 
     // Emit the AngelScript settings sidecar (cauldron_settings.json) next to the
@@ -232,7 +228,7 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
             Directory.CreateDirectory(modDir);
             var sidecarPath = Path.Combine(modDir, "cauldron_settings.json");
 
-            // Self-host default settings. In a panel-managed deploy the host writes this
+            // Self-host default settings. In a managed deploy the host writes this
             // sidecar with the operator's difficulty settings; here we emit a sane
             // default so a self-host boots.
             var payload = new
@@ -257,8 +253,8 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
                     DayNightTimescale = 1.0,
                 },
             };
-            // Do NOT overwrite a sidecar the panel already wrote (it carries the real
-            // customer settings); only seed one if absent.
+            // Do NOT overwrite a sidecar the host already wrote (it carries the real
+            // operator settings); only seed one if absent.
             if (!File.Exists(sidecarPath))
             {
                 File.WriteAllText(sidecarPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
@@ -266,6 +262,19 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
             }
         }
         catch (Exception ex) { _log.LogError(ex, "EmitPluginConfig (AngelScript sidecar) failed"); }
+    }
+
+    // Given <root>\Hercules\Binaries\Win64\exe, walk up to the install <root>.
+    private static string? FindInstallRootFromExe(string exe)
+    {
+        try
+        {
+            var win64 = Path.GetDirectoryName(exe);              // ...\Binaries\Win64
+            var binaries = Path.GetDirectoryName(win64);          // ...\Binaries
+            var project = Path.GetDirectoryName(binaries);        // ...\Hercules
+            return Path.GetDirectoryName(project);                // <root>
+        }
+        catch { return null; }
     }
 
     private static string EscapeArg(string s) => s.Contains(' ') ? $"\"{s}\"" : s;
@@ -300,50 +309,5 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
     {
         // saveSlot is accepted for API parity but the listen world is just ?listen.
         return "?listen";
-    }
-
-    /// <summary>
-    /// Heuristic: does this path look like a Steam / Epic / MS Store install
-    /// root for vanilla Witchspire? Used to refuse Engine.ini / plugin-config
-    /// writes that would corrupt a vanilla install if GameUserDir/GameInstallRoot
-    /// were misconfigured.
-    /// </summary>
-    internal static bool LooksLikeVanillaInstallPath(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return false;
-        // Check the resolved real target too — a customer can junction
-        // their Cauldron user dir at C:\Cauldron\userdir over a vanilla
-        // Witchspire install and the literal-string check passes while the
-        // Engine.ini write lands inside the vanilla folder.
-        return MatchesVanillaSubstring(path)
-            || MatchesVanillaSubstring(TryResolveSymlinkTarget(path));
-    }
-
-    private static bool MatchesVanillaSubstring(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return false;
-        var p = path.Replace('/', '\\').ToLowerInvariant();
-        return p.Contains(@"\steamapps\common\")
-            || p.Contains(@"\steamlibrary\")
-            || p.Contains(@"\epicgameslauncher\")
-            || p.Contains(@"\epic games\")
-            || p.Contains(@"\windowsapps\");
-    }
-
-    private static string? TryResolveSymlinkTarget(string path)
-    {
-        try
-        {
-            // DirectoryInfo.LinkTarget on .NET 6+ returns the immediate
-            // target of a junction/symlink; null otherwise. Path.GetFullPath
-            // canonicalises any '..' segments. ResolveLinkTarget(true)
-            // walks the chain (multiple junctions) but isn't strictly
-            // needed for the common case.
-            var di = new DirectoryInfo(path);
-            if (!di.Exists) return null;
-            var resolved = di.ResolveLinkTarget(true);
-            return resolved?.FullName;
-        }
-        catch { return null; }
     }
 }

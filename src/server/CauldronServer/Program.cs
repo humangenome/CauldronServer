@@ -1,3 +1,4 @@
+using Cauldron.Abstractions;
 using CauldronServer.Configuration;
 using CauldronServer.Services;
 using Microsoft.Extensions.Configuration;
@@ -45,6 +46,13 @@ public static class Program
 
             builder.Services.AddSingleton<InstanceIdentityProvider>();
             builder.Services.AddSingleton<HmacKeyService>();
+
+            // Host launch prep: a host package may ship its own plugin to manage the
+            // Steam/EOS auth prerequisites for headless hosting. Falls back to the
+            // built-in Engine.ini template applier when none is present.
+            builder.Services.AddSingleton<IHostLaunchPrep>(_ =>
+                HostLaunchPrepLoader.Load(AppContext.BaseDirectory, msg => Log.Information("{Message}", msg)));
+
             builder.Services.AddSingleton<PipeServerState>();
             builder.Services.AddSingleton<CauldronRestartCoordinator>();
 
@@ -56,6 +64,7 @@ public static class Program
             builder.Services.AddHostedService<HeartbeatWatchdogService>();
             builder.Services.AddHostedService<SourceQueryHostedService>();
             builder.Services.AddHostedService<RconHostedService>();
+            builder.Services.AddHostedService<WitchspireScriptPatchService>();
             builder.Services.AddHostedService<CauldronProcessSupervisorService>();
             builder.Services.AddHostedService<CauldronLogTailService>();
             builder.Services.AddHostedService<CauldronHttpService>();

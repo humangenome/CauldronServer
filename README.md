@@ -28,13 +28,14 @@ packaged installer are distributed from [HumanGenome/Cauldron](https://github.co
 
 ## How players join
 
-Witchspire is not a direct-IP product. Players join through the game's own
-session transport using a short **join code** surfaced by the host. There is no
-gameplay UDP port to forward — only the operational ports below need to be open:
+Players join by the server's **address** (`ip:port`). CauldronServer brings the
+Witchspire host up as an ordinary Unreal listen server on a real UDP port, so a
+join is plain UDP traffic straight to the host. Four ports matter:
 
-- **Query (A2S)** — UDP, for status checks.
+- **Gameplay** — UDP, the port players connect to. Mandatory.
+- **Query (A2S)** — UDP, for status checks and server lists.
 - **RCON** — TCP, for remote console.
-- **Admin HTTP API** — TCP, loopback-only by default for the launcher.
+- **Admin HTTP API** — TCP, for the Cauldron launcher's world and snapshot tools.
 
 ## Build
 
@@ -61,9 +62,9 @@ Tagged releases (`vX.Y.Z`) build, test, publish, and attach
 1. Install the Witchspire dedicated server files via SteamCMD (app `2679100`)
    into the game folder configured in `appsettings.json`. CauldronServer launches
    the game from there.
-2. Open the query UDP port, the RCON TCP port, and the admin HTTP TCP port.
-   Joins ride the game session transport, so there is no gameplay UDP port to
-   forward.
+2. Forward and allow the gameplay UDP port, the query UDP port, the RCON TCP
+   port, and the admin HTTP TCP port. The gameplay port is mandatory — without
+   it players cannot reach the host.
 3. Run CauldronServer; it supervises the game process, answers A2S/RCON, serves
    the admin API, and keeps save snapshots.
 
@@ -80,10 +81,9 @@ src/server/CauldronServer          the supervisor host (entry point)
 
 ## Official hosting
 
-CauldronServer is officially supported by
-[SurvivalServers.com](https://www.survivalservers.com/services/game_servers/witchspire/?utm_source=github&utm_medium=release&utm_campaign=cauldronserver) —
-managed Witchspire hosting with Cauldron pre-installed and kept on the latest
-pinned release. Self-hosting is fully supported from this source.
+Hosting: [SurvivalServers.com](https://www.survivalservers.com/services/game_servers/witchspire/?utm_source=github&utm_medium=readme&utm_campaign=cauldronserver) runs Cauldron for you.
+
+Self-hosting is fully supported from this source.
 
 ## License
 

@@ -3,13 +3,13 @@
 The per-instance sidecar — `CauldronServer.exe`. Runs Source RCON, Source A2S
 query, and the loopback HTTP admin API for one Witchspire host. It does NOT own
 the game-process lifecycle and there is NO display head / menu-drive: in a
-panel-managed deploy the host's PowerShell launches the per-customer exe directly
+managed deploy the host's launch script starts the per-customer exe directly
 (CREATE_SUSPENDED), pins CPU affinity before resume, and stops it; `GameInstallRoot`
 stays empty. The game hosts headless via `-nullrhi` + the Engine.ini
-`LocalMapOptions=?listen` config — no GPU, no WARP, no virtual display.
+`LocalMapOptions=?listen` config — no GPU and no virtual display needed.
 
-The panel's PowerShell owns the game-process lifecycle and CauldronServer's
-internal supervisor stays idle on an EMPTY `GameInstallRoot`. The panel launches
+The host's launch script owns the game-process lifecycle and CauldronServer's
+internal supervisor stays idle on an EMPTY `GameInstallRoot`. That script launches
 the per-customer exe directly (CREATE_SUSPENDED with the `-nullrhi` no-GPU args),
 pins CPU affinity before resume, reaps `CrashReportClient`/`WerFault`, and
 restarts. CauldronServer only serves RCON / Source A2S query / the loopback HTTP

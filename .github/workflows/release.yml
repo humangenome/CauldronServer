@@ -20,6 +20,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Guard the published source
+        shell: bash
+        run: |
+          # This repo is public. Nothing here may describe the headless-host auth
+          # technique, and nothing from a sibling product should ride along.
+          # A hit here fails the release rather than publishing it.
+          BANNED='Goldberg|goldberg|gbe_fork|steam_api64|steam_settings|AuthenticationGraph|Bellwright|Karvenia|MistOasis|Subnautica|Krafton|BeaconServer|PORT FROM|sspanel|b-cdn\.net'
+          if grep -rInE "$BANNED" --exclude-dir=.git --exclude=release.yml . ; then
+            echo "::error::banned token found in the published source"
+            exit 1
+          fi
+          echo "clean"
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
@@ -36,6 +49,19 @@ jobs:
 
       - name: Publish CauldronServer (self-contained)
         run: dotnet publish src/server/CauldronServer/CauldronServer.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false
+
+      - name: Verify server version stamp
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $numeric = ($version -split '-')[0]
+          $publish = "src/server/CauldronServer/bin/Release/net8.0/win-x64/publish"
+          $exe = [Diagnostics.FileVersionInfo]::GetVersionInfo("$publish/CauldronServer.exe")
+          $assembly = [Reflection.AssemblyName]::GetAssemblyName("$publish/CauldronServer.dll").Version.ToString()
+          if ($exe.FileVersion -ne "$numeric.0" -or $assembly -ne "$numeric.0" -or -not $exe.ProductVersion.StartsWith($version)) {
+            throw "tag $version does not match server exe FileVersion=$($exe.FileVersion), ProductVersion=$($exe.ProductVersion), AssemblyVersion=$assembly - bump Directory.Build.props"
+          }
 
       - name: Stage release artifact
         shell: pwsh

@@ -3,6 +3,19 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.12] - 2026-07-27
+
+### Added
+- Optional host launch prep plugin. A host package can now ship its own prep for the Steam/EOS prerequisites a headless Witchspire host needs; when none is present the server applies the package's `engine-ini/Engine.host.ini` template instead.
+- The save-identity script patch is now part of the published server, so a self-hosted server gets per-player character saves on direct-IP joins without a manual step.
+
+### Fixed
+- The shipped defaults advertised a map name from a different game, so server browsers and monitors were shown a map that does not exist in Witchspire.
+- The live game-process check never matched the real Witchspire process, so a direct-IP host reported itself offline to A2S even while running.
+
+### Changed
+- Published server source is now synced from the build repo on every release, so the source on this repo always matches the binary the release ships.
+
 ## [0.1.11] - 2026-07-22
 
 ### Changed

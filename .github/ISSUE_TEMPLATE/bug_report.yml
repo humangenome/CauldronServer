@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in the Cauldron server, launcher, or host mod is broken
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please make sure this is about Cauldron itself — not your hosting provider's panel, billing, or support.
+
+  - type: input
+    id: cauldron-version
+    attributes:
+      label: Cauldron version
+      placeholder: "e.g. v0.1.12 — and which package: CauldronSetup-<version>.exe or Cauldron-Server-Windows-x64-v<version>.zip"
+    validations:
+      required: true
+
+  - type: input
+    id: game-build
+    attributes:
+      label: Witchspire build ID + exe SHA256 (if known)
+      placeholder: "e.g. build 1234567 / sha256 ab12..."
+
+  - type: input
+    id: os
+    attributes:
+      label: Server OS
+      placeholder: "e.g. Windows Server 2022, Windows 11 Pro 23H2"
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Be specific. Include exact commands, config, and any client-side actions.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Attach or paste relevant log excerpts:
+        - The server's own log, `logs/cauldron-<date>.log`, beside `CauldronServer.exe`
+        - The game's log, `ws-ue.log`, in the instance user dir
+        - The host mod's lines (they are prefixed `CAULDRON_HOST:`)
+      render: text
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmations
+      options:
+        - label: I've searched existing issues for a duplicate
+          required: true
+        - label: This is a Cauldron bug, not a hosting-provider support issue
+          required: true

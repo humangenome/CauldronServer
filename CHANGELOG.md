@@ -3,6 +3,15 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.13] - 2026-07-28
+
+### Fixed
+- The server download on this page is now the complete host package, and this is the first release you can actually host from. Every release up to v0.1.12 published the supervisor build on its own, with no `CauldronServer\` folder and no host mod, so the `CauldronServer\CauldronServer.exe` in the setup steps did not exist and a server started from those files supervised Witchspire without ever opening a world anyone could join.
+- The sample `appsettings.json` used a default port block belonging to another game, left out the control port so it fell back to an unrelated default, and carried a mods setting that was not wired to anything.
+
+### Changed
+- A release is blocked unless the published server package carries the full host layout — the supervisor, the host mod, the Engine.ini templates, the Steam app id and the launch helper — and the check runs again on the copy downloaded back from this page.
+
 ## [0.1.12] - 2026-07-27
 
 ### Added

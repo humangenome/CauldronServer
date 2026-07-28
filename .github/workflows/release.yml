@@ -93,9 +93,13 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($notes)) {
             throw "CHANGELOG.md section for $version is empty."
           }
+          # Release notes are grouped by component across this project, so the
+          # body opens with the component heading and the changelog's own
+          # Added/Changed/Fixed sections nest under it. Without this the body
+          # started at '### Fixed' and had to be hand-edited after every release.
           $hostingUrl = "https://www.survivalservers.com/services/game_servers/witchspire/?utm_source=github&utm_medium=release_notes&utm_campaign=cauldronserver-$version"
           $hosting = "`n`n---`n`nHosting: [SurvivalServers.com]($hostingUrl) runs Cauldron for you.`n"
-          $body = $notes + $hosting
+          $body = "## Server`n`n" + $notes + $hosting
           $body | Out-File -FilePath release-body.md -Encoding utf8
 
       - name: Create GitHub release (CauldronServer)
@@ -104,6 +108,14 @@ jobs:
           body_path: release-body.md
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # Author the release as HumanGenome rather than github-actions[bot].
+          # Needs a HumanGenome-owned PAT with Contents: Read and write stored
+          # as the repo secret HUMANGENOME_PAT. It is NOT set on this repo yet,
+          # so the fallback hands the step GITHUB_TOKEN and the byline stays
+          # github-actions[bot] — which is why every release page here up to
+          # v0.1.13 reads that way. Adding the secret fixes it with no further
+          # change; a release's author cannot be corrected after the fact.
+          token: ${{ secrets.HUMANGENOME_PAT || secrets.GITHUB_TOKEN }}
 
   # Fail-closed backstop. The release page is only correct once the host package
   # is attached to it, and that attachment happens from the Cauldron build. If it

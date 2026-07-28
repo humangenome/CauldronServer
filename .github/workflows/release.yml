@@ -109,12 +109,11 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           # Author the release as HumanGenome rather than github-actions[bot].
-          # Needs a HumanGenome-owned PAT with Contents: Read and write stored
-          # as the repo secret HUMANGENOME_PAT. It is NOT set on this repo yet,
-          # so the fallback hands the step GITHUB_TOKEN and the byline stays
-          # github-actions[bot] — which is why every release page here up to
-          # v0.1.13 reads that way. Adding the secret fixes it with no further
-          # change; a release's author cannot be corrected after the fact.
+          # HUMANGENOME_PAT is set on this repo (2026-07-28); the fallback only
+          # matters if the secret is ever removed, in which case the release
+          # still publishes but the byline degrades to github-actions[bot] —
+          # which is why every release page here up to v0.1.14 reads that way.
+          # A release's author cannot be corrected after the fact.
           token: ${{ secrets.HUMANGENOME_PAT || secrets.GITHUB_TOKEN }}
 
   # Fail-closed backstop. The release page is only correct once the host package

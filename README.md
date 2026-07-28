@@ -54,10 +54,20 @@ dotnet publish src/server/CauldronServer/CauldronServer.csproj \
   -c Release -r win-x64 --self-contained true
 ```
 
-Tagged releases (`vX.Y.Z`) build, test, publish, and attach
-`Cauldron-Server-Windows-x64-<tag>.zip` automatically via GitHub Actions.
+Tagged releases (`vX.Y.Z`) build and test this source, then publish the release
+page. The release's `Cauldron-Server-Windows-x64-<tag>.zip` is the complete host
+package and is built and attached by the Cauldron build, not here: this repo
+carries the supervisor source only, so anything it could zip on its own would be
+a bare publish output with no `CauldronServer\` folder and no host mod. A
+release whose host package never arrives fails the `verify-bundle` job.
 
 ## Self-hosting
+
+Download `Cauldron-Server-Windows-x64-<tag>.zip` from the
+[latest release](https://github.com/HumanGenome/CauldronServer/releases/latest)
+and extract it on the Windows host. It unpacks as `CauldronServer\` (the
+supervisor and the `angelscript-mods\cauldron_host` host mod), `engine-ini\`,
+`steam_appid.txt` and `host-instance.ps1`. Run `CauldronServer\CauldronServer.exe`.
 
 1. Install the Witchspire dedicated server files via SteamCMD (app `2679100`)
    into the game folder configured in `appsettings.json`. CauldronServer launches

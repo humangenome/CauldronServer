@@ -69,10 +69,11 @@ and extract it on the Windows host. It unpacks as `CauldronServer\` (the
 supervisor and the `angelscript-mods\cauldron_host` host mod), `engine-ini\`,
 `steam_appid.txt` and `host-instance.ps1`. Run `CauldronServer\CauldronServer.exe`.
 
-**Use v0.1.13 or later.** Releases up to v0.1.12 published the supervisor build
+**Use v0.1.14 or later.** Releases up to v0.1.12 published the supervisor build
 on its own — the files unpack flat, there is no `CauldronServer\` folder and no
 host mod, and a server started from them never opens a world anyone can join.
-Those pages are annotated and their archives were left as they are.
+Those pages are annotated and their archives were left as they are. v0.1.13
+carried the real package but its archive was withdrawn and replaced by v0.1.14.
 
 1. Install the Witchspire dedicated server files via SteamCMD (app `2679100`)
    into the game folder configured in `appsettings.json`. CauldronServer launches

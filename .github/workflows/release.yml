@@ -27,8 +27,13 @@ jobs:
           # not appear here — internal hosting references and residue from sibling
           # projects. The list itself is encoded so it does not become a hint.
           # A hit fails the release rather than publishing it.
+          #
+          # release.yml and the published-artifact scanner both carry the deny
+          # list as data, so both are excluded. Without the second exclusion the
+          # guard trips on the scanner's own rule table and no release can run.
           BANNED="$(printf '%s' 'R29sZGJlcmd8Z29sZGJlcmd8Z2JlX2Zvcmt8c3RlYW1fYXBpNjR8c3RlYW1fc2V0dGluZ3N8QXV0aGVudGljYXRpb25HcmFwaHxCZWxsd3JpZ2h0fEthcnZlbmlhfE1pc3RPYXNpc3xTdWJuYXV0aWNhfEtyYWZ0b258QmVhY29uU2VydmVyfFBPUlQgRlJPTXxzc3BhbmVsfGItY2RuXC5uZXQ=' | base64 -d)"
-          if grep -rInE "$BANNED" --exclude-dir=.git --exclude=release.yml . ; then
+          if grep -rInE "$BANNED" --exclude-dir=.git --exclude=release.yml \
+               --exclude=verify-published-artifacts.py --exclude=artifact-scan.yml . ; then
             echo "::error::deny-listed term found in the published source"
             exit 1
           fi

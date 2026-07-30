@@ -3,6 +3,11 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.15] - 2026-07-30
+
+### Changed
+- Rebuild of the v0.1.14 server package with no functional change. The binaries no longer carry the build machine's directory layout or a debug link back to where they were compiled, and the build now fails if either comes back.
+
 ## [0.1.14] - 2026-07-28
 
 ### Fixed

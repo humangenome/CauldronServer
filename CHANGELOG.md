@@ -3,6 +3,11 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.16] - 2026-10-12
+
+### Changed
+- The RCON commands `say`, `announce` and `motd` now answer that nothing was sent. Witchspire has no in-game channel Cauldron can post to, so these used to report success for messages no player could see. They are no longer listed in `help`. The host package is otherwise the same as v0.1.15.
+
 ## [0.1.15] - 2026-07-30
 
 ### Changed

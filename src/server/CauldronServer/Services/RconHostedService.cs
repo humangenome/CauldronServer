@@ -18,21 +18,18 @@ public sealed class RconHostedService : IHostedService
     private readonly CauldronServerOptions _opts;
     private readonly PipeServerState _state;
     private readonly SaveOrchestratorService _saves;
-    private readonly ChatService _chat;
     private RconServer? _server;
 
     public RconHostedService(
         ILogger<RconHostedService> log,
         IOptions<CauldronServerOptions> opts,
         PipeServerState state,
-        SaveOrchestratorService saves,
-        ChatService chat)
+        SaveOrchestratorService saves)
     {
         _log = log;
         _opts = opts.Value;
         _state = state;
         _saves = saves;
-        _chat = chat;
     }
 
     public Task StartAsync(CancellationToken ct)
@@ -66,37 +63,22 @@ public sealed class RconHostedService : IHostedService
         _log.LogDebug("RCON dispatch: cmd={Cmd} argLen={ArgLen}", head, rest.Length);
         return head switch
         {
-            "help"     => "commands: status, players, ping, save snapshot, save list, say <msg>, announce <msg>, motd [msg]",
+            "help"     => "commands: status, players, ping, save snapshot, save list",
             "status"   => BuildStatus(),
             "players"  => BuildPlayers(),
             "ping"     => "pong",
             "save"     => await HandleSaveAsync(rest).ConfigureAwait(false),
             "snapshot" => await HandleSaveAsync("snapshot").ConfigureAwait(false),
-            "say"      => HandleChat(rest, "system"),
-            "announce" => HandleChat(rest, "admin"),
-            "motd"     => HandleMotd(rest),
+            // Witchspire shows none of these: no in-game overlay or launcher view reads the
+            // chat buffer, so answering "chat ok" told an admin a message went out when no
+            // player could ever see it. Say so instead.
+            "say" or "announce" or "motd" => NotDelivered,
             _          => $"unknown rcon command: {head} (try: help)",
         };
     }
 
-    private string HandleChat(string msg, string channel)
-    {
-        var clean = (msg ?? "").Trim();
-        if (string.IsNullOrEmpty(clean)) return $"usage: {(channel == "admin" ? "announce" : "say")} <message>";
-        var entry = _chat.BroadcastFromServer(clean, channel: channel, sender: "Server");
-        return $"chat ok ({channel}): {entry.Msg}";
-    }
-
-    private string HandleMotd(string sub)
-    {
-        var trimmed = (sub ?? "").Trim();
-        if (string.IsNullOrEmpty(trimmed))
-        {
-            var cur = _chat.GetMotd();
-            return string.IsNullOrEmpty(cur) ? "motd is empty" : $"motd: {cur}";
-        }
-        return _chat.SetMotd(trimmed) ? "motd updated" : "motd update failed (check log)";
-    }
+    internal const string NotDelivered =
+        "not sent: Witchspire has no in-game message channel Cauldron can post to, so say, announce and motd are not available";
 
     private async Task<string> HandleSaveAsync(string sub)
     {

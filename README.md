@@ -1,41 +1,49 @@
 # CauldronServer
 
-[![Platform](https://img.shields.io/badge/Platform-Windows_10%2F11-blue.svg)](#build)
-[![Game](https://img.shields.io/badge/Game-Witchspire-darkgreen.svg)](https://store.steampowered.com/app/2679100/)
-[![Runtime](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
-[![Client](https://img.shields.io/badge/Client_App-Cauldron-brightgreen.svg)](https://github.com/HumanGenome/Cauldron)
+<p align="center">
+  <a href="#build"><img src="https://img.shields.io/badge/Platform-Windows_10%2F11%2FServer-blue.svg" alt="Platform"></a>
+  <a href="https://store.steampowered.com/app/2679100/"><img src="https://img.shields.io/badge/Game-Witchspire-darkgreen.svg" alt="Game"></a>
+  <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-8.0-512BD4.svg" alt=".NET 8"></a>
+  <a href="https://github.com/HumanGenome/Cauldron"><img src="https://img.shields.io/badge/Player_App-Cauldron-444.svg" alt="Player App"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-lightgrey.svg" alt="License"></a>
+</p>
 
-**CauldronServer** is the dedicated-server supervisor behind **Cauldron**, the
-hosting stack that gives [Witchspire](https://store.steampowered.com/app/2679100/)
-reliable, panel-manageable multiplayer servers. It wraps the Witchspire dedicated
-server with the operational plumbing a real host needs: process supervision,
-crash recovery, server query, RCON, persistence, and a local admin API the
-Cauldron launcher drives.
+Witchspire has no dedicated server. [Cauldron](https://github.com/HumanGenome/Cauldron) adds one: a headless Witchspire host opens the world on a public IP and port, and players join it by address through the Cauldron app. CauldronServer is the supervisor that runs beside that host. It answers Source RCON and A2S queries, serves the admin API the Cauldron app uses for world backups, takes world snapshots, and can launch and restart the game.
 
-This repository is the **server source**. The player-facing launcher and the
-packaged installer are distributed from [HumanGenome/Cauldron](https://github.com/HumanGenome/Cauldron).
+This repository is the supervisor's source. The player app and its installer are published from [HumanGenome/Cauldron](https://github.com/HumanGenome/Cauldron).
 
 ## What it does
 
-- **Process supervisor + watchdog** — launches the Witchspire dedicated server,
-  watches its heartbeat, and recovers it on crash or hang.
-- **Source Query (A2S)** — answers A2S so the server is visible to the hosting
-  panel's status checks.
-- **Source RCON** — standard Source RCON for remote console and admin commands.
-- **Persistence** — SQLite-backed bans, scheduled tasks, and an audit log.
-- **Local admin API** — a loopback-only control plane the Cauldron launcher uses
-  to start/stop, configure, and query the server.
+### 🛠 RCON
+Source RCON on TCP `GameplayPort + 3` (default 17780). Commands: `help`, `status`, `players`, `ping`, `save snapshot`, `save list`. RCON is off until `RconPassword` is set in `appsettings.json`.
 
-## How players join
+### 📡 Server query
+Source A2S on UDP `GameplayPort + 2` (default 17779): the server name, the map (`L_StarterIsland`) and the live player count, which the host mod publishes from the game's own player list.
 
-Players join by the server's **address** (`ip:port`). CauldronServer brings the
-Witchspire host up as an ordinary Unreal listen server on a real UDP port, so a
-join is plain UDP traffic straight to the host. Four ports matter:
+### 🔁 World snapshots
+`save snapshot` (RCON) or the admin API zips everything under the host's `Saved\SaveGames`. A restore stops the game, takes a snapshot of the current world first, swaps the chosen one in and starts the game again. The Cauldron app's World window drives the same calls.
 
-- **Gameplay** — UDP, the port players connect to. Mandatory.
-- **Query (A2S)** — UDP, for status checks and server lists.
-- **RCON** — TCP, for remote console.
-- **Admin HTTP API** — TCP, for the Cauldron launcher's world and snapshot tools.
+### 🔐 Admin API
+HTTP on TCP `GameplayPort + 4` (default 17781). `/api/v1/health` is public so a panel or the app can poll it; everything else needs a signed request whose key is derived from `RconPassword`, and the API is off while that password is empty.
+
+### ♻️ Game supervision
+With `GameInstallRoot` set, the supervisor launches Witchspire headless (`-nullrhi`) and relaunches it with backoff when it exits.
+
+## Ports
+
+| Port | Protocol | Use |
+|---|---|---|
+| `GameplayPort` (default 17777) | UDP | players join here; open it to the internet |
+| `+1` | local only | supervisor IPC |
+| `+2` | UDP | A2S query |
+| `+3` | TCP | RCON |
+| `+4` | TCP | admin API |
+
+## Self-hosting
+
+**Self-hosting is not turnkey yet.** The package does not copy the host mod (`CauldronServer\angelscript-mods\cauldron_host`) into your Witchspire install's `Hercules\Script\Mods` folder, does not set the host mod's port, and does not write the per-server Engine.ini with your gameplay port. Without those steps a server started from the package opens no world players can join.
+
+What you need either way: a Windows machine, and Witchspire's game files on it from your own Steam copy (CauldronServer does not ship the game). Use the host package from v0.1.14 or later (`Cauldron-Server-Windows-x64-v<version>.zip` on the [latest release](https://github.com/HumanGenome/CauldronServer/releases/latest)); earlier releases published the supervisor build on its own, without the host mod.
 
 ## Build
 
@@ -47,60 +55,37 @@ dotnet build CauldronServer.sln -c Release
 dotnet test  CauldronServer.sln -c Release
 ```
 
-Publish a self-contained Windows build (what releases ship):
+Publish a self-contained Windows build:
 
 ```bash
 dotnet publish src/server/CauldronServer/CauldronServer.csproj \
   -c Release -r win-x64 --self-contained true
 ```
 
-Tagged releases (`vX.Y.Z`) build and test this source, then publish the release
-page. The release's `Cauldron-Server-Windows-x64-<tag>.zip` is the complete host
-package and is built and attached by the Cauldron build, not here: this repo
-carries the supervisor source only, so anything it could zip on its own would be
-a bare publish output with no `CauldronServer\` folder and no host mod. A
-release whose host package never arrives fails the `verify-bundle` job.
-
-## Self-hosting
-
-Download `Cauldron-Server-Windows-x64-<tag>.zip` from the
-[latest release](https://github.com/HumanGenome/CauldronServer/releases/latest)
-and extract it on the Windows host. It unpacks as `CauldronServer\` (the
-supervisor and the `angelscript-mods\cauldron_host` host mod), `engine-ini\`,
-`steam_appid.txt` and `host-instance.ps1`. Run `CauldronServer\CauldronServer.exe`.
-
-**Use v0.1.14 or later.** Releases up to v0.1.12 published the supervisor build
-on its own — the files unpack flat, there is no `CauldronServer\` folder and no
-host mod, and a server started from them never opens a world anyone can join.
-Those pages are annotated and their archives were left as they are. v0.1.13
-carried the real package but its archive was withdrawn and replaced by v0.1.14.
-
-1. Install the Witchspire dedicated server files via SteamCMD (app `2679100`)
-   into the game folder configured in `appsettings.json`. CauldronServer launches
-   the game from there.
-2. Forward and allow the gameplay UDP port, the query UDP port, the RCON TCP
-   port, and the admin HTTP TCP port. The gameplay port is mandatory — without
-   it players cannot reach the host.
-3. Run CauldronServer; it supervises the game process, answers A2S/RCON, serves
-   the admin API, and keeps save snapshots.
+A tagged release (`vX.Y.Z`) builds and tests this source and publishes the release page. The host package attached to it (the supervisor, the `cauldron_host` mod, the Engine.ini templates and the launch helper) is assembled by the Cauldron build, because the host mod is not part of this repository. A release whose host package does not arrive fails the `verify-bundle` job. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Layout
 
 ```
-src/shared/Cauldron.Protocol       wire types shared with the launcher
+src/shared/Cauldron.Protocol       wire types shared with the player app
 src/shared/Cauldron.Abstractions   shared interfaces
 src/server/Cauldron.SourceQuery    A2S responder
 src/server/Cauldron.Rcon           Source RCON server
-src/server/Cauldron.Persistence    SQLite store (bans/schedule/audit)
-src/server/CauldronServer          the supervisor host (entry point)
+src/server/Cauldron.Persistence    SQLite store (snapshots, bans, schedule, audit)
+src/server/CauldronServer          the supervisor (entry point)
 ```
 
-## Official hosting
+## Contributing
 
-Hosting: [SurvivalServers.com](https://www.survivalservers.com/services/game_servers/witchspire/?utm_source=github&utm_medium=readme&utm_campaign=cauldronserver) runs Cauldron for you.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues go through [private reporting](https://github.com/HumanGenome/CauldronServer/security/advisories/new), never a public issue.
 
-Self-hosting is fully supported from this source.
+## Community note
+
+Cauldron is an independent community project. It is not affiliated with, endorsed by, or supported by Envar Games.
 
 ## License
 
-[MIT](LICENSE) © HumanGenome
+MIT, see [LICENSE](LICENSE).
+
+---
+Hosting: [SurvivalServers.com](https://www.survivalservers.com/services/game_servers/witchspire/?utm_source=github&utm_medium=readme&utm_campaign=cauldronserver) runs Cauldron for you.

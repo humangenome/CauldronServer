@@ -15,7 +15,7 @@ Open an issue using the **Bug report** template. Include:
 - Server log excerpt (`logs/cauldron-*.log`, beside `CauldronServer.exe`) and the game's `ws-ue.log`
 - Whether anyone else can reproduce on a clean server
 
-If your issue is about managed hosting you bought (panel, billing, support), contact your host directly. Cauldron's GitHub issues are for the open-source server, launcher, and mods themselves.
+If your issue is about a hosted server you rent (panel, billing, support), contact your host directly. Cauldron's GitHub issues are for the open-source server, launcher, and mods themselves.
 
 ## Feature requests
 

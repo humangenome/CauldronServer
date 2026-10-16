@@ -8,7 +8,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-lightgrey.svg" alt="License"></a>
 </p>
 
-Witchspire has no dedicated server. [Cauldron](https://github.com/HumanGenome/Cauldron) adds one: a headless Witchspire host opens the world on a public IP and port, and players join it by address through the Cauldron app. CauldronServer is the supervisor that runs beside that host. It answers Source RCON and A2S queries, serves the admin API the Cauldron app uses for world backups, takes world snapshots, and can launch and restart the game.
+Witchspire has no dedicated server. [Cauldron](https://github.com/HumanGenome/Cauldron) adds one: a headless Witchspire host opens the world on a public IP and port, and players join it by address through the Cauldron app. CauldronServer is the supervisor that runs beside that host. It starts the game with the host mod in place, answers Source RCON and A2S queries, serves the admin API the Cauldron app uses for world backups, and takes world snapshots.
 
 This repository is the supervisor's source. The player app and its installer are published from [HumanGenome/Cauldron](https://github.com/HumanGenome/Cauldron).
 
@@ -27,7 +27,7 @@ Source A2S on UDP `GameplayPort + 2` (default 17779): the server name, the map (
 HTTP on TCP `GameplayPort + 4` (default 17781). `/api/v1/health` is public so a panel or the app can poll it; everything else needs a signed request whose key is derived from `RconPassword`, and the API is off while that password is empty.
 
 ### ♻️ Game supervision
-With `GameInstallRoot` set, the supervisor launches Witchspire headless (`-nullrhi`) and relaunches it with backoff when it exits.
+With `GameInstallRoot` set, the supervisor prepares the game before every start (the host mod with your port in `Hercules\Script\Mods\Cauldron`, the game's network settings for that port, `steam_appid.txt`), launches Witchspire headless (`-nullrhi`) and relaunches it with backoff when it exits. Closing the server stops the game with it.
 
 ## Ports
 
@@ -41,9 +41,26 @@ With `GameInstallRoot` set, the supervisor launches Witchspire headless (`-nullr
 
 ## Self-hosting
 
-**Self-hosting is not turnkey yet.** The package does not copy the host mod (`CauldronServer\angelscript-mods\cauldron_host`) into your Witchspire install's `Hercules\Script\Mods` folder, does not set the host mod's port, and does not write the per-server Engine.ini with your gameplay port. Without those steps a server started from the package opens no world players can join.
+You need a 64-bit Windows 10, 11 or Windows Server machine with about 8 GB of free disk, and Witchspire's game files from your own Steam copy (CauldronServer does not ship the game). In our test on Windows Server 2022 an empty server used about a quarter of a CPU core and 2 GB of memory; players add to that.
 
-What you need either way: a Windows machine, and Witchspire's game files on it from your own Steam copy (CauldronServer does not ship the game). Use the host package from v0.1.14 or later (`Cauldron-Server-Windows-x64-v<version>.zip` on the [latest release](https://github.com/HumanGenome/CauldronServer/releases/latest)); earlier releases published the supervisor build on its own, without the host mod.
+1. Download `Cauldron-Server-Windows-x64-v<version>.zip` from the [latest release](https://github.com/HumanGenome/CauldronServer/releases/latest) and extract it to `C:\Cauldron`. You get `C:\Cauldron\CauldronServer\CauldronServer.exe` and `C:\Cauldron\engine-ini\`.
+2. Put a copy of Witchspire in `C:\Cauldron\game`, separate from your Steam library. Download it with [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD) and a Steam account that owns the game:
+   ```
+   steamcmd +force_install_dir C:\Cauldron\game +login <your Steam name> +app_update 2679100 validate +quit
+   ```
+   or copy the folder Steam opens from Witchspire > Manage > Browse local files. The server will not use a game folder inside a Steam library: the host mod it adds would turn that copy into a server the next time you play.
+3. Optional: in `C:\Cauldron\CauldronServer\appsettings.json` set `ServerName`, and set `RconPassword` to turn on RCON and the admin API (the app's Console and World window). For other ports, change `GameplayPort` and the four ports after it.
+4. Open the ports in Windows Firewall, in an administrator PowerShell:
+   ```
+   New-NetFirewallRule -DisplayName "Cauldron game" -Direction Inbound -Protocol UDP -LocalPort 17777 -Action Allow
+   New-NetFirewallRule -DisplayName "Cauldron query" -Direction Inbound -Protocol UDP -LocalPort 17779 -Action Allow
+   New-NetFirewallRule -DisplayName "Cauldron admin" -Direction Inbound -Protocol TCP -LocalPort 17780-17781 -Action Allow
+   ```
+   Behind a home router, also forward UDP 17777 and 17779 to this machine (and TCP 17780-17781 if you set an admin password).
+5. Run `C:\Cauldron\CauldronServer\CauldronServer.exe`. Before every start it puts the host mod into the game with your port, writes the game's network settings and starts Witchspire with no window. The world was open about 15 seconds after the start in our test. The game's log is `C:\Cauldron\userdir\ws-ue.log`; the world is open when it shows `CAULDRON_HOST: ... listen=true`.
+6. Players install the [Cauldron app](https://github.com/HumanGenome/Cauldron), add `<your public IP>:17777` and click Connect.
+
+Close the server's window to stop it; the game stops with it. The world is saved in `C:\Cauldron\userdir\Saved\SaveGames\savegame_0` and loads again at the next start. When Witchspire updates, update `C:\Cauldron\game` too: players' games update by themselves, and a server on an older version turns them away. There is no join password; anyone with the address can join.
 
 ## Build
 

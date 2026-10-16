@@ -3,6 +3,17 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.18] - 2026-10-16
+
+### Fixed
+- Snapshots no longer include the game's own `Backups` folder inside each world folder. Witchspire keeps adding copies of the world there and never removes old ones. On a server running since June that folder held 99,313 files (503 MB), so one snapshot took four minutes and made a 546 MB zip, and every restore and import takes a snapshot first. Snapshots now hold only the world and player saves.
+- A restore or import no longer deletes that `Backups` history. It stays where it is, or goes to `Saved\world-backups-kept` when the restored world has no folder for it.
+- A restore or import turned automatic snapshots on even with `SnapshotsEnabled` set to `false`. They now come back after a restore only when `SnapshotsEnabled` is `true`.
+- The game writing its own backup copies no longer starts an automatic snapshot.
+
+### Security
+- MessagePack updated from 3.1.7 to 3.1.10. Versions before 3.1.9 let nested arrays get past buffer length limits ([GHSA-qhrr-8q5h-9q3h](https://github.com/advisories/GHSA-qhrr-8q5h-9q3h)).
+
 ## [0.1.17] - 2026-10-15
 
 ### Added

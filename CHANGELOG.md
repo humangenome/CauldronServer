@@ -3,6 +3,23 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.17] - 2026-10-15
+
+### Added
+- You can host a Witchspire server from this package on your own Windows machine. Before every start the server puts the host mod into the game's `Hercules\Script\Mods\Cauldron` folder with your `GameplayPort`, writes the game's network settings for that port and adds `steam_appid.txt` beside the game. Until now only a hosting panel did those steps, so a server started from the package never opened a world anyone could join. The steps are in the README.
+- Closing the server window, or ending CauldronServer any other way, stops the game with it.
+
+### Fixed
+- The Cauldron app showed a self-hosted server as offline. The server now keeps the game's process id for its online check.
+- Restoring or importing a world through the World window refused every Witchspire 0.2 world, which keeps its files in a folder (`savegame_0\`). Automatic snapshots never ran for the same reason. Both read the folder now, and an automatic snapshot is taken at most every 15 minutes.
+- Setting `CauldronAuthPassword` stopped the game every three minutes. Witchspire servers have no join password, so the setting is now ignored with a warning, and server browsers are no longer told one is needed.
+- The server read no settings when it was started from another folder.
+- The game's own log no longer fills the server window; it stays in `<GameUserDir>\ws-ue.log`.
+
+### Changed
+- A player's character is keyed on the first 20 characters of their name, the same as on hosted servers. Names of 20 characters or fewer keep their characters.
+- The sample `appsettings.json` names the game, user and save folders (`C:\Cauldron\game`, `C:\Cauldron\userdir`, `C:\Cauldron\saves`).
+
 ## [0.1.16] - 2026-10-12
 
 ### Changed

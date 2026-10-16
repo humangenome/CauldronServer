@@ -47,6 +47,9 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
     public CauldronDb Database => _db;
 
+    /// <summary>True while the auto-snapshot watcher is on (tests and diagnostics).</summary>
+    internal bool AutoSnapshotsOn => _watcher is not null;
+
     public Task StartAsync(CancellationToken _)
     {
         _log.LogInformation("Save orchestrator ready; db={Path}, save_dir={Dir}, snapshots_enabled={Enabled}",
@@ -100,9 +103,16 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
                 IncludeSubdirectories = true,
                 EnableRaisingEvents = true,
             };
-            _watcher.Changed += (_, e) => _ = OnSaveFileChangedAsync(e.FullPath);
-            _watcher.Created += (_, e) => _ = OnSaveFileChangedAsync(e.FullPath);
-            _watcher.Renamed += (_, e) => _ = OnSaveFileChangedAsync(e.FullPath);
+            // The game also copies saves into savegame_N\Backups; those copies are not a
+            // new world state and are left out of snapshots, so they never trigger one.
+            void OnEvent(string fullPath)
+            {
+                if (IsGameBackupPath(Path.GetRelativePath(sourceDir, fullPath))) return;
+                _ = OnSaveFileChangedAsync(fullPath);
+            }
+            _watcher.Changed += (_, e) => OnEvent(e.FullPath);
+            _watcher.Created += (_, e) => OnEvent(e.FullPath);
+            _watcher.Renamed += (_, e) => OnEvent(e.FullPath);
             _log.LogInformation("FileSystemWatcher armed on {Dir} (*.sav, subfolders included)", sourceDir);
         }
         catch (Exception ex)
@@ -264,7 +274,7 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             destinationPath,
             System.IO.Compression.ZipArchiveMode.Create);
 
-        foreach (var file in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        foreach (var file in EnumerateSnapshotFiles(sourceDir))
         {
             var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
             var info = new FileInfo(file);
@@ -275,6 +285,98 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
             archive.CreateEntryFromFile(file, relativePath, System.IO.Compression.CompressionLevel.Optimal);
         }
+    }
+
+    /// <summary>
+    /// Every file a snapshot holds: the whole SaveGames tree except each world's
+    /// <c>Backups</c> folder. Witchspire keeps its own copy of the world there on
+    /// every save and never prunes it (one long-lived server had 99,313 files,
+    /// 503 MB), so zipping it made each snapshot minutes long and hundreds of MB.
+    /// The folder is skipped without being walked.
+    /// </summary>
+    internal static IEnumerable<string> EnumerateSnapshotFiles(string sourceDir)
+    {
+        var pending = new Stack<string>();
+        pending.Push(sourceDir);
+        while (pending.Count > 0)
+        {
+            var dir = pending.Pop();
+            foreach (var file in Directory.EnumerateFiles(dir))
+                yield return file;
+            foreach (var sub in Directory.EnumerateDirectories(dir))
+            {
+                if (IsGameBackupPath(Path.GetRelativePath(sourceDir, sub))) continue;
+                pending.Push(sub);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Is this path (relative to SaveGames) the game's own backup folder of a world,
+    /// <c>savegame_N/Backups</c>, or anything inside it?
+    /// </summary>
+    internal static bool IsGameBackupPath(string relativePath) =>
+        System.Text.RegularExpressions.Regex.IsMatch(
+            relativePath.Replace('\\', '/'),
+            @"^savegame_\d+/Backups(/|$)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// After a restore swapped SaveGames, move each world's <c>Backups</c> history
+    /// from the old tree into the restored one, so a restore never deletes it
+    /// (snapshots no longer carry it). A backup the incoming zip already has wins.
+    /// When the restored tree has no folder for that world, the history goes to
+    /// <c>Saved\world-backups-kept\savegame_N-&lt;time&gt;</c> instead. Returns false
+    /// if anything could not be moved; the caller then keeps the old tree.
+    /// </summary>
+    internal static bool KeepGameBackups(string oldSaveGamesDir, string newSaveGamesDir, ILogger log)
+    {
+        var ok = true;
+        if (!Directory.Exists(oldSaveGamesDir)) return true;
+        foreach (var slot in Directory.EnumerateDirectories(oldSaveGamesDir))
+        {
+            var slotName = Path.GetFileName(slot);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(slotName, @"^savegame_\d+$",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant)) continue;
+            var oldBackups = Directory.EnumerateDirectories(slot)
+                .FirstOrDefault(d => string.Equals(Path.GetFileName(d), "Backups", StringComparison.OrdinalIgnoreCase));
+            if (oldBackups is null) continue;
+            try
+            {
+                var newSlot = Path.Combine(newSaveGamesDir, slotName);
+                if (!Directory.Exists(newSlot))
+                {
+                    var keptRoot = Path.Combine(Path.GetDirectoryName(newSaveGamesDir)!, "world-backups-kept");
+                    Directory.CreateDirectory(keptRoot);
+                    var kept = Path.Combine(keptRoot, $"{slotName}-{DateTime.UtcNow:yyyyMMddTHHmmssZ}");
+                    Directory.Move(oldBackups, kept);
+                    log.LogInformation("Kept the game's backups of {Slot} at {Path}: the restored saves have no folder for that world", slotName, kept);
+                    continue;
+                }
+                var newBackups = Directory.EnumerateDirectories(newSlot)
+                    .FirstOrDefault(d => string.Equals(Path.GetFileName(d), "Backups", StringComparison.OrdinalIgnoreCase));
+                if (newBackups is null)
+                {
+                    Directory.Move(oldBackups, Path.Combine(newSlot, "Backups"));
+                    continue;
+                }
+                foreach (var entry in Directory.EnumerateFileSystemEntries(oldBackups).ToList())
+                {
+                    var target = Path.Combine(newBackups, Path.GetFileName(entry));
+                    if (File.Exists(target) || Directory.Exists(target)) continue;
+                    if (Directory.Exists(entry)) Directory.Move(entry, target);
+                    else File.Move(entry, target);
+                }
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                log.LogWarning(ex, "Could not move the game's backups of {Slot} into the restored saves; the old saves stay at {Old}", slotName, oldSaveGamesDir);
+            }
+        }
+        return ok;
     }
 
     /// <summary>
@@ -411,7 +513,10 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
                 Directory.Move(stagingDir, saveGamesDir);
                 if (Directory.Exists(prevDir))
                 {
-                    try { Directory.Delete(prevDir, recursive: true); } catch { /* best effort */ }
+                    if (KeepGameBackups(prevDir, saveGamesDir, _log))
+                    {
+                        try { Directory.Delete(prevDir, recursive: true); } catch { /* best effort */ }
+                    }
                 }
             }
             catch (Exception ex)
@@ -447,9 +552,18 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             // the ORIGINAL SaveGames dir; Directory.Move above replaced
             // that inode. Tear it down and re-arm against the new dir or
             // future auto-snapshots stop firing until CauldronServer restart.
+            // Only when auto-snapshots are on: a host that turned them off
+            // (SnapshotsEnabled=false) must not get them back from a restore.
             try { _watcher?.Dispose(); } catch { }
             _watcher = null;
-            TryStartFileWatcher();
+            if (_opts.SnapshotsEnabled)
+            {
+                TryStartFileWatcher();
+            }
+            else
+            {
+                _log.LogInformation("Auto-snapshots stay off after the restore (SnapshotsEnabled=false)");
+            }
 
             _log.LogInformation("Restore complete from {Zip}; pre-snapshot {Id}", zipPath, pre.SnapshotId);
             return true;

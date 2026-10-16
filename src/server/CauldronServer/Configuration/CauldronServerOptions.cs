@@ -94,11 +94,12 @@ public sealed class CauldronServerOptions
 
     /// <summary>
     /// Take a snapshot zip of the SaveGames dir into <see cref="SaveDir"/>
-    /// on every auto-save (via FileSystemWatcher). Useful for self-hosters
-    /// who want a rollback option. Hosting providers that run their own
-    /// backup chain should set this to false to avoid disk churn — a
-    /// 1-per-minute snapshot rate produces ~1500 zips and ~1 GB per
-    /// instance per day.
+    /// when the game auto-saves (via FileSystemWatcher), at most one every
+    /// 15 minutes, kept 30 days. Useful for self-hosters who want a rollback
+    /// option. Hosting providers that run their own backup chain set this to
+    /// false; a restore or import never turns it back on. Snapshots leave out
+    /// each world's <c>Backups</c> folder (the game's own copies, which it
+    /// never prunes), and a restore keeps that folder in place.
     /// </summary>
     public bool SnapshotsEnabled { get; set; } = true;
 

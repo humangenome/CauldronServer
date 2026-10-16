@@ -37,10 +37,12 @@ public interface IHostLaunchPrep
 /// <param name="ServerName">Operator-visible server name.</param>
 /// <param name="InstanceId">Cauldron instance id.</param>
 /// <param name="PackageDirectory">Directory the supervisor was published into — where package assets live.</param>
+/// <param name="GameplayPort">UDP port players join on; written into the host Engine.ini. 0 = unknown.</param>
 public sealed record HostLaunchContext(
     string? InstallRoot,
     string ExecutablePath,
     string UserDir,
     string ServerName,
     string InstanceId,
-    string PackageDirectory);
+    string PackageDirectory,
+    int GameplayPort = 0);

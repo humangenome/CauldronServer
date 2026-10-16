@@ -27,7 +27,9 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
     private FileSystemWatcher? _watcher;
     private readonly System.Threading.SemaphoreSlim _autoLock = new(1, 1);
     private DateTime _lastAutoSnapshotUtc = DateTime.MinValue;
-    private static readonly TimeSpan AutoSnapshotDebounce = TimeSpan.FromSeconds(45);
+    // Witchspire saves every few minutes; one automatic snapshot per window keeps a
+    // useful history without filling the disk (snapshots are kept 30 days).
+    private static readonly TimeSpan AutoSnapshotDebounce = TimeSpan.FromMinutes(15);
 
     public SaveOrchestratorService(
         ILogger<SaveOrchestratorService> log,
@@ -75,10 +77,11 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Watch the game's SaveGames dir for auto-save writes. The game's host
-    /// process auto-saves savegame_0.sav every ~1 minute. When the file mtime
-    /// changes, debounce and trigger a Cauldron snapshot. This is the "Cauldron
-    /// snapshots, Witchspire owns the trigger" model — no save RPC needed.
+    /// Watch the game's SaveGames dir for auto-save writes. Witchspire keeps a world
+    /// in a folder (SaveGames\savegame_0\*.sav, one file per player plus the world),
+    /// so the watch covers subfolders. When a save lands, debounce and trigger a
+    /// Cauldron snapshot. This is the "Cauldron snapshots, Witchspire owns the
+    /// trigger" model — no save RPC needed.
     /// </summary>
     private void TryStartFileWatcher()
     {
@@ -91,16 +94,16 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             }
             var sourceDir = Path.Combine(_opts.GameUserDir, "Saved", "SaveGames");
             Directory.CreateDirectory(sourceDir);
-            _watcher = new FileSystemWatcher(sourceDir, "savegame_*.sav")
+            _watcher = new FileSystemWatcher(sourceDir, "*.sav")
             {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime,
-                IncludeSubdirectories = false,
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime | NotifyFilters.FileName,
+                IncludeSubdirectories = true,
                 EnableRaisingEvents = true,
             };
             _watcher.Changed += (_, e) => _ = OnSaveFileChangedAsync(e.FullPath);
             _watcher.Created += (_, e) => _ = OnSaveFileChangedAsync(e.FullPath);
             _watcher.Renamed += (_, e) => _ = OnSaveFileChangedAsync(e.FullPath);
-            _log.LogInformation("FileSystemWatcher armed on {Dir} (savegame_*.sav)", sourceDir);
+            _log.LogInformation("FileSystemWatcher armed on {Dir} (*.sav, subfolders included)", sourceDir);
         }
         catch (Exception ex)
         {
@@ -274,6 +277,20 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Does a SaveGames zip carry a world at its root? Either a world folder
+    /// (<c>savegame_0/…/*.sav</c>, the current layout) or an older single-file slot
+    /// (<c>savegame_0.sav</c>). Empty files do not count.
+    /// </summary>
+    internal static bool ContainsWorldSave(IEnumerable<(string FullName, long Length)> entries) =>
+        entries.Any(e =>
+            e.Length > 0 &&
+            System.Text.RegularExpressions.Regex.IsMatch(
+                e.FullName.Replace('\\', '/'),
+                @"^savegame_\d+(\.sav|/.+\.sav)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant));
+
     private static bool IsRootSaveSlotPath(string relativePath) =>
         System.Text.RegularExpressions.Regex.IsMatch(
             relativePath,
@@ -317,7 +334,8 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
     /// <summary>
     /// Restore from a freshly-uploaded zip on disk (e.g. an imported vanilla
     /// save or a cross-server transfer payload). The zip must contain the
-    /// contents of a SaveGames directory at its root (savegame_0.sav etc.).
+    /// contents of a SaveGames directory at its root: a world folder
+    /// (savegame_0/*.sav) or an older single-file slot (savegame_0.sav).
     /// Takes a pre-restore snapshot, kills the game, swaps in the new files, then
     /// releases the supervisor gate.
     /// </summary>
@@ -359,19 +377,14 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             var prevDir = saveGamesDir + ".old-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
             // Validate the zip BEFORE touching live SaveGames. A zip with no
-            // savegame_*.sav at the root is almost certainly a customer
-            // zipping the wrong folder — refuse rather than wipe their world.
+            // world at the root is almost certainly a customer zipping the
+            // wrong folder — refuse rather than wipe their world.
             try
             {
                 using var probe = System.IO.Compression.ZipFile.OpenRead(zipPath);
-                var hasSave = probe.Entries.Any(e =>
-                    e.Length > 0 &&
-                    System.Text.RegularExpressions.Regex.IsMatch(
-                        e.FullName, @"^savegame_\d+\.sav$",
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase));
-                if (!hasSave)
+                if (!ContainsWorldSave(probe.Entries.Select(e => (e.FullName, e.Length))))
                 {
-                    _log.LogWarning("Restore rejected: zip {Path} contains no savegame_*.sav at the root", zipPath);
+                    _log.LogWarning("Restore rejected: zip {Path} has no world at its root (savegame_N/*.sav or savegame_N.sav)", zipPath);
                     return false;
                 }
             }

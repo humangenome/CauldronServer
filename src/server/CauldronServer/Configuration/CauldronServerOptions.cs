@@ -43,26 +43,15 @@ public sealed class CauldronServerOptions
     public string RconPassword { get; set; } = "";
 
     /// <summary>
-    /// LEGACY field — IGNORED. Was the password handed to the game's native
-    /// handshake + the native Cauldron.dll ApproveLogin hook. The game's stock
-    /// GameMode fatal-crashes the dedicated process when a password is set on
-    /// the native path (the ?Password= option in the launch URL is dropped by
-    /// the game's internal map travel, the native check sees a mismatch, and
-    /// the process self-terminates with "appError: Couldn't spawn player").
-    /// Password enforcement routes through CauldronAuth.lua only (see
-    /// <see cref="CauldronAuthPassword"/>). Lua, A2S, and native (CauldronPlugin.cpp)
-    /// all ignore this field. Field is kept for binary appsettings.json
-    /// compatibility only; do NOT set it.
+    /// LEGACY field — IGNORED. Kept so older appsettings.json files still load.
+    /// Witchspire servers have no join password.
     /// </summary>
     public string ServerPassword { get; set; } = "";
 
     /// <summary>
-    /// Password enforced by CauldronAuth.lua's K2_PostLogin hook for
-    /// incoming remote clients. Written by the panel into appsettings.json.
-    /// Empty string means open server (no password gate). The listen-server
-    /// host is positively detected and exempt from the gate. Used by
-    /// SourceQueryHostedService for the A2S PasswordRequired flag so the
-    /// Steam server browser correctly advertises passworded instances.
+    /// LEGACY field — IGNORED (logged once if set). It fed a password gate from an
+    /// earlier Cauldron design that does not exist on a Witchspire host, so a
+    /// Witchspire server has no join password and A2S never advertises one.
     /// </summary>
     public string CauldronAuthPassword { get; set; } = "";
 

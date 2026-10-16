@@ -12,6 +12,11 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        // appsettings.json, data\ and logs\ live beside the exe. Run from there whatever
+        // folder the server was started from (a shortcut, a terminal elsewhere, a task),
+        // or it would read no settings and start on the built-in defaults.
+        try { Directory.SetCurrentDirectory(AppContext.BaseDirectory); } catch { }
+
         // Verbose toggle: Cauldron:Verbose (config / appsettings.json) OR the
         // CAULDRON_VERBOSE env var. When on, the minimum log level drops to Debug
         // so the RCON / A2S / HTTP / heartbeat instrumentation is emitted. Off by
@@ -43,6 +48,14 @@ public static class Program
             builder.Services.AddSerilog();
 
             builder.Services.Configure<CauldronServerOptions>(builder.Configuration.GetSection("Cauldron"));
+            // Self-host: this server starts the game itself, so it also keeps the game's
+            // pid file, which the online check (A2S, /api/v1/health) reads.
+            builder.Services.PostConfigure<CauldronServerOptions>(o =>
+            {
+                var selfHost = !string.IsNullOrWhiteSpace(o.GameInstallRoot) || !string.IsNullOrWhiteSpace(o.GameExecutablePath);
+                if (selfHost && string.IsNullOrWhiteSpace(o.GamePidFile) && !string.IsNullOrWhiteSpace(o.GameUserDir))
+                    o.GamePidFile = Path.Combine(o.GameUserDir, "cauldron-game.pid");
+            });
 
             builder.Services.AddSingleton<InstanceIdentityProvider>();
             builder.Services.AddSingleton<HmacKeyService>();

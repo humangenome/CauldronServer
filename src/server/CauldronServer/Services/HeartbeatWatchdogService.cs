@@ -11,23 +11,10 @@ namespace CauldronServer.Services;
 /// <see cref="CauldronServerOptions.PluginHeartbeatTimeoutSeconds"/>, log a warning;
 /// future work hooks process supervision into this to restart the Witchspire instance.
 ///
-/// Password enforcement model:
-///   Password enforcement lives in CauldronAuth.lua's K2_PostLogin hook on
-///   incoming remote clients. The native Cauldron.dll ApproveLogin hook is
-///   INTENTIONALLY disabled (see CauldronProcessSupervisorService.EmitPluginConfig
-///   for the Witchspire crash-loop rationale). EmitPluginConfig always emits an
-///   empty ServerPassword to plugin-config.json, so the native gate has
-///   nothing to enforce.
-///
-///   The legacy <see cref="CheckServerPasswordReady"/> path is kept as a
-///   defensive bug-detector: if the plugin EVER reports
-///   ServerPasswordConfigured=1, something has gone wrong upstream (a
-///   stale plugin-config.json carrying a non-empty ServerPassword from an
-///   earlier deploy, or a manually-edited plugin config). In that
-///   case the native and Lua paths could race and reproduce the Witchspire
-///   crash loop, so we kill the game loudly with a CRITICAL log rather than
-///   let a customer hit it. The expected steady-state is
-///   Configured=0 + HookReady=0 across the entire fleet.
+/// Witchspire servers have no join password (see CheckCauldronAuthLuaReady). The
+/// <see cref="CheckServerPasswordReady"/> path is a leftover from a native-plugin
+/// design: Witchspire hosts load no such plugin, so nothing ever connects to the
+/// pipe and these checks stay quiet.
 /// </summary>
 public sealed class HeartbeatWatchdogService : BackgroundService
 {
@@ -80,193 +67,19 @@ public sealed class HeartbeatWatchdogService : BackgroundService
         }
     }
 
-    private static readonly TimeSpan LuaStatusBootstrapGrace = TimeSpan.FromSeconds(45);
-    // Wider grace for the no-connection-at-all case: covers the cold-
-    // start window where the game process is launching but Cauldron.dll hasn't
-    // connected the pipe yet. Witchspire cold launches can take 30-60s on a
-    // panel-managed Win Server box. After this window without a pipe,
-    // CauldronServer concludes UE4SS / CauldronLoader / Cauldron.dll never
-    // loaded successfully and fail-closes.
-    private static readonly TimeSpan NoConnectionFailClosedGrace = TimeSpan.FromSeconds(180);
-    private DateTimeOffset _lastLuaFailClosedWarnAt = DateTimeOffset.MinValue;
-    private readonly DateTimeOffset _serverStartedAt = DateTimeOffset.UtcNow;
-
-    // The "no-connection-window-started-at" anchor. Reset whenever we observe
-    // a live connection. Without this reset, a long-lived CauldronServer that
-    // briefly loses its pipe (e.g. game process crash + relaunch driven by
-    // CauldronServer's own supervisor, or by the panel's PowerShell) would
-    // skip the cold-start grace on the relaunch and fail-closed immediately
-    // even though the new game process needs its own 30-60s cold launch.
-    // Initialized to _serverStartedAt so the very first game launch gets the
-    // full grace window from CauldronServer process startup.
-    private DateTimeOffset _noConnSince = DateTimeOffset.UtcNow;
+    // Witchspire servers have no join password. The password gate this setting fed
+    // was a UE4SS Lua mod plus a native plugin from an earlier Cauldron design; neither
+    // exists on a Witchspire host, so there is nothing to wait for. The old fail-closed
+    // check stopped the game every three minutes once a password was set.
+    private bool _authPasswordIgnoredLogged;
 
     private void CheckCauldronAuthLuaReady()
     {
-        // Fail-closed for the Lua-only password-enforcement model.
-        // If CauldronAuthPassword is configured but the Lua gate isn't
-        // reporting ready, kill the game to prevent the server from
-        // running open without a gate. CauldronAuth.lua writes
-        // CauldronServer/.cauldron-auth-status with key=value pairs:
-        //   ready=0|1
-        //   passwordConfigured=0|1
-        //   updated=<unix>
-        //   reason=<short string>
-        //
-        // Fail-closed paths:
-        //   1. No pipe connection at all (UE4SS never loaded, CauldronLoader
-        //      failed, Cauldron.dll never connected) past NoConnectionFailClosedGrace
-        //      since CauldronServer process start. Use path-scoped KillGame
-        //      (only effective on standalone — panel deploys log loudly).
-        //   2. Pipe connection exists but CauldronAuth status is not ready
-        //      past LuaStatusBootstrapGrace since handshake. Use BOTH
-        //      path-scoped KillGame AND PluginPid-based kill.
-        if (string.IsNullOrEmpty(_opts.CauldronAuthPassword)) return;
-
-        var conn = _state.Connection;
-        if (conn is not null)
-        {
-            // Live connection observed. Reset the no-connection anchor so
-            // that any FUTURE drop gets a fresh 180s grace window. This is
-            // the fix for the case where the anchor was the DI construction
-            // time, which meant a long-running CauldronServer would skip grace
-            // on a later game restart and immediately fail-closed during the
-            // new game's legitimate cold-launch window.
-            _noConnSince = DateTimeOffset.UtcNow;
-        }
-        if (conn is null)
-        {
-            // Grace window since we last had a connection (or since
-            // CauldronServer process startup if we've never had one).
-            var sinceConnLost = DateTimeOffset.UtcNow - _noConnSince;
-            if (sinceConnLost < NoConnectionFailClosedGrace) return;
-
-            var noConnNow = DateTimeOffset.UtcNow;
-            var noConnSinceWarn = noConnNow - _lastLuaFailClosedWarnAt;
-            if (noConnSinceWarn > TimeSpan.FromSeconds(15))
-            {
-                _log.LogCritical(
-                    "FAIL-CLOSED: CauldronAuthPassword is configured but Cauldron.dll has NEVER connected to CauldronServer's IPC " +
-                    "pipe past {Grace}s grace. UE4SS / CauldronLoader / Cauldron.dll likely did not load. Without the plugin and " +
-                    "the Lua gate, the passworded server cannot enforce its password. Stopping Witchspire (path-scoped only — " +
-                    "panel-managed deploys with empty GameInstallRoot will see this log but require panel-side recovery, " +
-                    "PluginPid path is unavailable without a connection). " +
-                    "Diagnose: check Witchspire.log / UE4SS.log for UE4SS bootstrap, CauldronAuth.log absent, CauldronServerRuntime.log absent.",
-                    NoConnectionFailClosedGrace.TotalSeconds);
-                _lastLuaFailClosedWarnAt = noConnNow;
-            }
-            try
-            {
-                _coordinator.KillGame(TimeSpan.FromSeconds(10));
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "FAIL-CLOSED (no-conn): KillGame threw");
-            }
-            return;
-        }
-        var sinceConnect = DateTimeOffset.UtcNow - conn.ConnectedAt;
-        if (sinceConnect < LuaStatusBootstrapGrace) return;
-
-        // Status file lives next to appsettings.json, which sits in
-        // CauldronServer's working dir. We can derive it from the
-        // running process. On panel deploys the panel starts
-        // CauldronServer.exe with `-WorkingDirectory $cauldronDir` so the
-        // exe directory IS the appsettings directory. On standalone
-        // self-hosts the assumption may not hold; ContentRootPath
-        // would be more correct in the future, but adding a host
-        // dependency here is more risk than it's worth right now.
-        string statusPath;
-        try
-        {
-            var baseDir = AppContext.BaseDirectory;
-            statusPath = Path.Combine(baseDir, ".cauldron-auth-status");
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "CauldronAuth status path resolve failed");
-            return;
-        }
-
-        var (ready, passwordConfigured, reason, exists) = ReadLuaStatus(statusPath);
-        // Stale-file protection: CauldronServerRuntime/main.lua atomically
-        // overwrites .cauldron-auth-status with ready=0,reason=runtime_init
-        // BEFORE CauldronAuth runs, on every game process start (see the
-        // write_not_ready_at pass at the top of that script). If runtime
-        // can't overwrite (file lock + all retries fail), it calls
-        // error(...) to abort CauldronServerRuntime entirely — CauldronLoader
-        // and CauldronAuth never load, Cauldron.dll never injects, no pipe
-        // handshake happens, and the no-connection fail-closed path in
-        // CheckCauldronAuthLuaReady (above) takes the game down via pid-file.
-        // So any .cauldron-auth-status the watchdog reads here with
-        // ready=1 + passwordConfigured=1 was written by THIS game
-        // process's CauldronAuth.lua post-handshake; no file mtime
-        // freshness check needed.
-        if (exists && passwordConfigured && ready) return;
-
-        var now = DateTimeOffset.UtcNow;
-        var sinceWarn = now - _lastLuaFailClosedWarnAt;
-        if (sinceWarn > TimeSpan.FromSeconds(15))
-        {
-            _log.LogCritical(
-                "FAIL-CLOSED: CauldronAuthPassword is configured but CauldronAuth.lua status is not ready " +
-                "(exists={Exists} ready={Ready} passwordConfigured={PwConfigured} reason='{Reason}' path={Path}). " +
-                "Stopping Witchspire to prevent the passworded server from running open without the Lua password gate. " +
-                "Investigate UE4SS load failure / CauldronAuth.lua install / mods.txt ordering; the supervisor will " +
-                "relaunch the game on the next loop.",
-                exists, ready, passwordConfigured, reason, statusPath);
-            _lastLuaFailClosedWarnAt = now;
-        }
-
-        try
-        {
-            // Path-scoped KillGame is best-effort on panel-managed deploys
-            // (GameInstallRoot is empty), so also try the PID-based kill
-            // path via the active pipe connection. PluginPid is the game
-            // process that loaded Cauldron.dll (Cauldron.dll calls
-            // GetCurrentProcessId in its handshake), so if we have an
-            // active pipe handshake, we know the exact PID to kill.
-            _coordinator.KillGame(TimeSpan.FromSeconds(10));
-            TryKillByPluginPid(conn.PluginPid);
-        }
-        catch (Exception ex)
-        {
-            _log.LogError(ex, "FAIL-CLOSED (Lua): KillGame / KillByPluginPid threw");
-        }
-    }
-
-    private (bool ready, bool passwordConfigured, string reason, bool exists) ReadLuaStatus(string path)
-    {
-        try
-        {
-            if (!File.Exists(path))
-            {
-                return (false, false, "file_missing", false);
-            }
-            var lines = File.ReadAllLines(path);
-            bool ready = false;
-            bool passwordConfigured = false;
-            string reason = "";
-            foreach (var line in lines)
-            {
-                var eq = line.IndexOf('=');
-                if (eq <= 0) continue;
-                var key = line.Substring(0, eq).Trim();
-                var value = line.Substring(eq + 1).Trim();
-                switch (key)
-                {
-                    case "ready": ready = value == "1"; break;
-                    case "passwordConfigured": passwordConfigured = value == "1"; break;
-                    case "reason": reason = value; break;
-                }
-            }
-            return (ready, passwordConfigured, reason, true);
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "CauldronAuth status read failed: {Path}", path);
-            return (false, false, "read_error", false);
-        }
+        if (string.IsNullOrEmpty(_opts.CauldronAuthPassword) || _authPasswordIgnoredLogged) return;
+        _authPasswordIgnoredLogged = true;
+        _log.LogWarning(
+            "CauldronAuthPassword is set, but Witchspire servers have no join password: nothing on the host can check it, " +
+            "so it is ignored and anyone with the address can join.");
     }
 
     private static readonly string[] CauldronKillProcessNameWhitelist = new[]
@@ -383,12 +196,10 @@ public sealed class HeartbeatWatchdogService : BackgroundService
         // Nothing to do.
         if (_state.LastServerPasswordConfigured == 0) return;
 
-        // Plugin says "I see ServerPassword in plugin-config.json." Under
-        // the Lua-only model this should be impossible — EmitPluginConfig
-        // hardcodes ServerPassword="". A non-zero value here means a stale
-        // config from a previous deploy, a manually-edited plugin-config.json,
-        // or a Cauldron update that regressed EmitPluginConfig. Stop the game
-        // before native + Lua enforcement layers race into the crash.
+        // Plugin says "I see ServerPassword in plugin-config.json." Nothing in
+        // Cauldron writes one any more, so this means a stale or hand-edited
+        // plugin config from an earlier design. Stop the game before two
+        // password layers race into the old crash.
         var now = DateTimeOffset.UtcNow;
         var sinceWarn = now - _lastFailClosedWarnAt;
         if (sinceWarn > TimeSpan.FromSeconds(15))

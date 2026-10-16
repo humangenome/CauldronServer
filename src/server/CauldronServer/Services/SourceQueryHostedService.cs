@@ -61,14 +61,9 @@ public sealed class SourceQueryHostedService : IHostedService, IAsyncDisposable
         SteamAppId: 2679100,                          // real Steam AppID — written as 64-bit GameID in EDF
         PlayerCount: _state.EffectivePlayerCount,
         MaxPlayers: _opts.MaxPlayers,
-        // Reflect the Lua-side CauldronAuth gate's configured password.
-        // CauldronAuthPassword is the field the panel populates and that
-        // CauldronAuth.lua actually enforces. The legacy ServerPassword
-        // field is intentionally ignored here for consistency with
-        // CauldronAuth.lua, which dropped the legacy fallback (reading
-        // ServerPassword would only matter for the native-enforcement
-        // crash path we're pivoting away from).
-        PasswordRequired: !string.IsNullOrEmpty(_opts.CauldronAuthPassword),
+        // No join password exists on a Witchspire host, so never advertise one
+        // (the Cauldron app would prompt for a password nothing checks).
+        PasswordRequired: false,
         VacSecured: false,
         Version: $"cauldron-{CauldronVersionInfo.CauldronVersion}/ws-{CauldronVersionInfo.CauldronBuild}",
         GameplayPort: _opts.GameplayPort,

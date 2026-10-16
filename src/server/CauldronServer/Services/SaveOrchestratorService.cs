@@ -289,8 +289,8 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
     /// <summary>
     /// Every file a snapshot holds: the whole SaveGames tree except each world's
-    /// <c>Backups</c> folder. Witchspire keeps its own copy of the world there on
-    /// every save and never prunes it (one long-lived server had 99,313 files,
+    /// <c>Backups</c> folder. Witchspire keeps adding its own copies of the world
+    /// there and never prunes them (one long-lived server had 99,313 files,
     /// 503 MB), so zipping it made each snapshot minutes long and hundreds of MB.
     /// The folder is skipped without being walked.
     /// </summary>

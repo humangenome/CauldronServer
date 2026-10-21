@@ -3,6 +3,11 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.20] - 2026-10-21
+
+### Changed
+- Version number only. The server is the same as 0.1.19; this release ships an app fix (icons on Windows 10).
+
 ## [0.1.19] - 2026-10-21
 
 ### Security

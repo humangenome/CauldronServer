@@ -21,7 +21,7 @@ Source RCON on TCP `GameplayPort + 3` (default 17780). Commands: `help`, `status
 Source A2S on UDP `GameplayPort + 2` (default 17779): the server name, the map (`L_StarterIsland`) and the live player count, which the host mod publishes from the game's own player list.
 
 ### 🔁 World snapshots
-`save snapshot` (RCON) or the admin API zips everything under the host's `Saved\SaveGames`. A restore stops the game, takes a snapshot of the current world first, swaps the chosen one in and starts the game again. The Cauldron app's World window drives the same calls.
+`save snapshot` (RCON) or the admin API zips the world and player saves under the host's `Saved\SaveGames`, without the `Backups` copies the game keeps inside each world folder. A restore stops the game, takes a snapshot of the current world first, swaps the chosen one in and starts the game again. The Cauldron app's World window drives the same calls.
 
 ### 🔐 Admin API
 HTTP on TCP `GameplayPort + 4` (default 17781). `/api/v1/health` is public so a panel or the app can poll it; everything else needs a signed request whose key is derived from `RconPassword`, and the API is off while that password is empty.
@@ -41,7 +41,7 @@ With `GameInstallRoot` set, the supervisor prepares the game before every start 
 
 ## Self-hosting
 
-You need a 64-bit Windows 10, 11 or Windows Server machine with about 8 GB of free disk, and Witchspire's game files from your own Steam copy (CauldronServer does not ship the game). In our test on Windows Server 2022 an empty server used about a quarter of a CPU core and 2 GB of memory; players add to that.
+You need a 64-bit Windows 10, 11 or Windows Server machine with about 10 GB of free disk (the game itself is about 7 GB), and Witchspire's game files from your own Steam copy (CauldronServer does not ship the game). In our test on Windows Server 2022 an empty server used about a quarter of a CPU core and 2 GB of memory; players add to that.
 
 1. Download `Cauldron-Server-Windows-x64-v<version>.zip` from the [latest release](https://github.com/HumanGenome/CauldronServer/releases/latest) and extract it to `C:\Cauldron`. You get `C:\Cauldron\CauldronServer\CauldronServer.exe` and `C:\Cauldron\engine-ini\`.
 2. Put a copy of Witchspire in `C:\Cauldron\game`, separate from your Steam library. Download it with [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD) and a Steam account that owns the game:

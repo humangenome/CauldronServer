@@ -3,6 +3,20 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.19] - 2026-10-21
+
+### Security
+- The admin API now checks a signed request's headers before it reads any of the body. A world upload is received only after its signature checks out, and a body of unknown length is capped at 64 KB.
+- Public and signed requests have their own request slots (16 public, 6 signed), and one large upload runs at a time, so signed traffic cannot crowd out the health check and the player list.
+- `GET /api/v1/chat/recent` needs a signed request.
+
+### Changed
+- A world upload over 64 KB must carry `X-Cauldron-Content-Sha256`. Apps before v0.1.19 do not send it and get `428` with "update the Cauldron app to upload worlds to this server". Everything else they do still works.
+- RCON `players` lists each player's name and time on the server; `status` says whether the world is running.
+
+### Removed
+- `POST /api/v1/chat/player`, a public route nothing called.
+
 ## [0.1.18] - 2026-10-16
 
 ### Fixed

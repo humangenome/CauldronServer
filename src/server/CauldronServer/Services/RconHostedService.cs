@@ -18,18 +18,24 @@ public sealed class RconHostedService : IHostedService
     private readonly CauldronServerOptions _opts;
     private readonly PipeServerState _state;
     private readonly SaveOrchestratorService _saves;
+    private readonly ChatService _chat;
+    private readonly HostChatLogService _chatLog;
     private RconServer? _server;
 
     public RconHostedService(
         ILogger<RconHostedService> log,
         IOptions<CauldronServerOptions> opts,
         PipeServerState state,
-        SaveOrchestratorService saves)
+        SaveOrchestratorService saves,
+        ChatService chat,
+        HostChatLogService chatLog)
     {
         _log = log;
         _opts = opts.Value;
         _state = state;
         _saves = saves;
+        _chat = chat;
+        _chatLog = chatLog;
     }
 
     public Task StartAsync(CancellationToken ct)
@@ -63,12 +69,14 @@ public sealed class RconHostedService : IHostedService
         _log.LogDebug("RCON dispatch: cmd={Cmd} argLen={ArgLen}", head, rest.Length);
         return head switch
         {
-            "help"     => "commands: status, players, ping, save snapshot, save list",
+            "help"     => "commands: status, players, ping, save snapshot, save list, chat, chataudit",
             "status"   => BuildStatus(),
             "players"  => BuildPlayers(),
             "ping"     => "pong",
             "save"     => await HandleSaveAsync(rest).ConfigureAwait(false),
             "snapshot" => await HandleSaveAsync("snapshot").ConfigureAwait(false),
+            "chat"     => BuildChat(),
+            "chataudit" => BuildChatAudit(),
             // Witchspire shows none of these: no in-game overlay or launcher view reads the
             // chat buffer, so answering "chat ok" told an admin a message went out when no
             // player could ever see it. Say so instead.
@@ -106,6 +114,52 @@ public sealed class RconHostedService : IHostedService
             return sb.ToString().TrimEnd();
         }
         return "usage: save snapshot | save list";
+    }
+
+    private string BuildChat() =>
+        FormatChat(_chat.GetRecent(0, 20), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+    private string BuildChatAudit()
+    {
+        var (audit, lines, proto) = _chatLog.Snapshot();
+        var saveGames = string.IsNullOrWhiteSpace(_opts.GameUserDir) ? "" : Path.Combine(_opts.GameUserDir, "Saved", "SaveGames");
+        var leak = saveGames.Length == 0 ? null : ChatSaveLeakCheck.Run(saveGames, _chatLog.RecentTexts());
+        return FormatChatAudit(audit, lines, proto, leak, DateTimeOffset.UtcNow);
+    }
+
+    internal static string FormatChat(IReadOnlyList<ChatService.ChatMessage> messages, long nowUnix)
+    {
+        if (messages.Count == 0) return "no chat yet";
+        var sb = new System.Text.StringBuilder();
+        foreach (var m in messages)
+        {
+            var ago = Math.Max(0, nowUnix - m.Ts);
+            var when = ago < 60 ? $"{ago}s ago" : ago < 3600 ? $"{ago / 60}m ago" : $"{ago / 3600}h ago";
+            sb.AppendLine(m.Channel == "player" ? $"{when}  {m.Sender}: {m.Msg}" : $"{when}  [{m.Channel}] {m.Msg}");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    internal static string FormatChatAudit(HostChatLogService.ChatAudit? audit, long lines, int proto, ChatSaveLeakCheck.Result? leak, DateTimeOffset now)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (proto == 0)
+            sb.AppendLine("chat: off (the host has not started in-game chat since this log began)");
+        else
+            sb.AppendLine($"chat: on (protocol {proto}), {lines} player lines read");
+        if (audit is null)
+            sb.AppendLine("relays: no audit yet (one is written every minute while the world runs)");
+        else
+            sb.AppendLine($"relays: {audit.Relays} for {audit.Players} players, {audit.Ready} with chat up, save marker {(audit.SaveMarker ? "PRESENT" : "none")} ({(int)(now - audit.At).TotalSeconds}s ago)");
+        if (leak is null)
+            sb.AppendLine("save check: skipped (no game user folder configured)");
+        else if (!leak.SaveFolderFound)
+            sb.AppendLine("save check: no world save yet");
+        else if (leak.Hits.Count == 0)
+            sb.AppendLine($"save check: clean ({leak.TextsChecked} recent lines searched in {leak.FilesScanned} save files)");
+        else
+            sb.AppendLine($"save check: FOUND chat text in {string.Join(", ", leak.Hits.Take(5))}");
+        return sb.ToString().TrimEnd();
     }
 
     private string BuildStatus()

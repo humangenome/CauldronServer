@@ -121,6 +121,14 @@ public sealed class ChatOptions
 {
     /// <summary>In-memory ring buffer cap for /api/v1/chat/recent. Min 20, default 200.</summary>
     public int RingBufferSize { get; set; } = 200;
+
+    /// <summary>
+    /// In-game text chat on a self-hosted server (players press T). When true, CauldronServer places
+    /// the package's chat scripts into the game before every start, after checking the game still has
+    /// every name they use (angelscript-mods/cauldron_chat/game-names.txt). False removes them.
+    /// Players need a Cauldron app with chat; others play as before without it.
+    /// </summary>
+    public bool InGameEnabled { get; set; } = true;
 }
 
 public sealed class ModsOptions

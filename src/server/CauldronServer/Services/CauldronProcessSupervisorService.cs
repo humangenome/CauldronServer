@@ -227,11 +227,15 @@ public sealed class CauldronProcessSupervisorService : BackgroundService
             return false;
         }
         var projectDir = ProjectDirFromExe(exe);
-        return HostModStager.Stage(AppContext.BaseDirectory, projectDir, _opts.GameplayPort, msg =>
+        var staged = HostModStager.Stage(AppContext.BaseDirectory, projectDir, _opts.GameplayPort, msg =>
         {
             if (msg.Contains("NOT staged", StringComparison.Ordinal)) _log.LogError("{Message}", msg);
             else _log.LogInformation("{Message}", msg);
         });
+        // Chat never decides whether the server starts: when it cannot be placed, the world opens without it.
+        if (staged)
+            ChatModStager.Stage(AppContext.BaseDirectory, projectDir, _opts.Chat.InGameEnabled, msg => _log.LogInformation("{Message}", msg));
+        return staged;
     }
 
     // Run the host launch prep: the host Engine.ini (direct-IP networking and the

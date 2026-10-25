@@ -71,8 +71,10 @@ public static class Program
 
             builder.Services.AddSingleton<SaveOrchestratorService>();
             builder.Services.AddSingleton<ChatService>();
+            builder.Services.AddSingleton<HostChatLogService>();
             builder.Services.AddHostedService(sp => sp.GetRequiredService<SaveOrchestratorService>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<ChatService>());
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<HostChatLogService>());
             builder.Services.AddHostedService<NamedPipeServerService>();
             builder.Services.AddHostedService<HeartbeatWatchdogService>();
             builder.Services.AddHostedService<SourceQueryHostedService>();

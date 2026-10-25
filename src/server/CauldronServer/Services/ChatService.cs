@@ -109,6 +109,26 @@ public sealed class ChatService : BackgroundService
         return entry;
     }
 
+    /// <summary>
+    /// A line a player typed in the game, read from the host log by <see cref="HostChatLogService"/>.
+    /// It already reached every player in the game, so it goes into the history only (never the
+    /// inbound file). Channel "player", target "all".
+    /// </summary>
+    public ChatMessage AppendFromGame(string sender, string msg)
+    {
+        var entry = new ChatMessage
+        {
+            Ts      = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            Sender  = string.IsNullOrWhiteSpace(sender) ? "Player" : Truncate(sender, 64),
+            Target  = "all",
+            Channel = "player",
+            Msg     = NormalizeBody(msg),
+            Color   = null,
+        };
+        AppendToRing(entry);
+        return entry;
+    }
+
     // ---- per-IP rate limiter for /chat/player ----
     //
     // The launcher relays exactly one message per Enter-press, so the

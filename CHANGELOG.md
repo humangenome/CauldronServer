@@ -3,6 +3,11 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.22] - 2026-10-25
+
+### Added
+- In-game chat: press T to talk to everyone on the server. Needs a server running CauldronServer 0.1.22 or newer.
+
 ## [0.1.21] - 2026-10-21
 
 ### Changed

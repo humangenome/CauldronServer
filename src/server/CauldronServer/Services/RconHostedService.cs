@@ -69,14 +69,14 @@ public sealed class RconHostedService : IHostedService
         _log.LogDebug("RCON dispatch: cmd={Cmd} argLen={ArgLen}", head, rest.Length);
         return head switch
         {
-            "help"     => "commands: status, players, ping, save snapshot, save list, chat, chataudit",
+            "help"     => "commands: status, players, ping, save snapshot, save list",
             "status"   => BuildStatus(),
             "players"  => BuildPlayers(),
             "ping"     => "pong",
             "save"     => await HandleSaveAsync(rest).ConfigureAwait(false),
             "snapshot" => await HandleSaveAsync("snapshot").ConfigureAwait(false),
-            "chat"     => BuildChat(),
-            "chataudit" => BuildChatAudit(),
+            // "chat" and "chataudit" (BuildChat / BuildChatAudit below) are held out of v0.1.22: their replies
+            // and the help entry are owner-readable words that have not been approved yet (2026-10-25).
             // Witchspire shows none of these: no in-game overlay or launcher view reads the
             // chat buffer, so answering "chat ok" told an admin a message went out when no
             // player could ever see it. Say so instead.
@@ -135,7 +135,7 @@ public sealed class RconHostedService : IHostedService
         {
             var ago = Math.Max(0, nowUnix - m.Ts);
             var when = ago < 60 ? $"{ago}s ago" : ago < 3600 ? $"{ago / 60}m ago" : $"{ago / 3600}h ago";
-            sb.AppendLine(m.Channel == "player" ? $"{when}  {m.Sender}: {m.Msg}" : $"{when}  [{m.Channel}] {m.Msg}");
+            sb.Append(m.Channel == "player" ? $"{when}  {m.Sender}: {m.Msg}" : $"{when}  [{m.Channel}] {m.Msg}").Append('\n');
         }
         return sb.ToString().TrimEnd();
     }
@@ -144,21 +144,21 @@ public sealed class RconHostedService : IHostedService
     {
         var sb = new System.Text.StringBuilder();
         if (proto == 0)
-            sb.AppendLine("chat: off (the host has not started in-game chat since this log began)");
+            sb.Append("chat: off (the host has not started in-game chat since this log began)").Append('\n');
         else
-            sb.AppendLine($"chat: on (protocol {proto}), {lines} player lines read");
+            sb.Append($"chat: on (protocol {proto}), {lines} player lines read").Append('\n');
         if (audit is null)
-            sb.AppendLine("relays: no audit yet (one is written every minute while the world runs)");
+            sb.Append("relays: no audit yet (one is written every minute while the world runs)").Append('\n');
         else
-            sb.AppendLine($"relays: {audit.Relays} for {audit.Players} players, {audit.Ready} with chat up, save marker {(audit.SaveMarker ? "PRESENT" : "none")} ({(int)(now - audit.At).TotalSeconds}s ago)");
+            sb.Append($"relays: {audit.Relays} for {audit.Players} players, {audit.Ready} with chat up, save marker {(audit.SaveMarker ? "PRESENT" : "none")} ({(int)(now - audit.At).TotalSeconds}s ago)").Append('\n');
         if (leak is null)
-            sb.AppendLine("save check: skipped (no game user folder configured)");
+            sb.Append("save check: skipped (no game user folder configured)").Append('\n');
         else if (!leak.SaveFolderFound)
-            sb.AppendLine("save check: no world save yet");
+            sb.Append("save check: no world save yet").Append('\n');
         else if (leak.Hits.Count == 0)
-            sb.AppendLine($"save check: clean ({leak.TextsChecked} recent lines searched in {leak.FilesScanned} save files)");
+            sb.Append($"save check: clean ({leak.TextsChecked} recent lines searched in {leak.FilesScanned} save files)").Append('\n');
         else
-            sb.AppendLine($"save check: FOUND chat text in {string.Join(", ", leak.Hits.Take(5))}");
+            sb.Append($"save check: FOUND chat text in {string.Join(", ", leak.Hits.Take(5))}").Append('\n');
         return sb.ToString().TrimEnd();
     }
 

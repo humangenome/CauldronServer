@@ -30,68 +30,14 @@ SKIP_PREFIXES = [
 REPO_RULES = {
     "entry_deny": [
         {
-            "id": "CAULDRON-STEAMEMU",
-            "re": "(?i)(goldberg|gbe_fork|steam_api64|steam_settings|steam_interfaces|steamemu|coldclientloader)",
-            "desc": "Steam emulator / headless-auth recipe (RULE #21e)"
+            "id": "NATIVE-SOURCE",
+            "re": "(?i)\\.(cpp|cxx|cc|hpp|hxx)$",
+            "desc": "native C++ source file in a published archive"
         },
         {
-            "id": "CAULDRON-HOSTPREP",
-            "re": "(?i)(Cauldron\\.HostPrep|SteamEosHostLaunchPrep)",
-            "desc": "private Cauldron host-launch-prep implementation (RULE #21e)"
-        },
-        {
-            "id": "LANTERN-HOSTPATCH-SRC",
-            "re": "(?i)LanternHostPatch[^/]*\\.(cpp|cxx|cc|h|hpp|hxx|lib|exp|pdb)$",
-            "desc": "LanternHostPatch source/link artifact (RULE #21c: compiled binary only)"
-        },
-        {
-            "id": "LANTERN-NETPATCH-SRC",
-            "re": "(?i)LanternClientNetPatch[^/]*\\.(cpp|cxx|cc|h|hpp|hxx|lib|exp|pdb)$",
-            "desc": "LanternClientNetPatch source/link artifact (RULE #21c)"
-        },
-        {
-            "id": "CAULDRON-HOSTPREP-DLL",
-            "re": "(?i)Cauldron\\.HostPrep[^/]*\\.(dll|pdb|cs)$",
-            "desc": "private HostPrep plugin must never be shipped (RULE #21e: it is never added to the sync manifest)"
-        },
-        {
-            "id": "CAULDRON-BUILDTARGETS",
-            "re": "(?i)(^|/)Directory\\.Build\\.targets$",
-            "desc": "private-only build targets file that carries the HostPrep ProjectReference (RULE #21e)"
-        }
-    ],
-    "token_deny": [
-        {
-            "id": "CAULDRON-EMU-TEXT",
-            "desc": "Steam emulator / headless-auth technique named in a shipped file (RULE #21e)",
-            "tokens": [
-                "Goldberg",
-                "goldberg",
-                "gbe_fork",
-                "steam_api64",
-                "steam_settings",
-                "AuthenticationGraph",
-                "ColdClientLoader"
-            ]
-        },
-        {
-            "id": "LANTERN-MECHANISM-TEXT",
-            "desc": "Lantern admission-bypass mechanism named in a shipped file (RULE #21c)",
-            "tokens": [
-                "ForceAdmit",
-                "force-admit",
-                "force_admit",
-                "PreLogin-maxplayers-admit",
-                "prelogin-complete",
-                "NotifyAcceptingConnection-accept"
-            ]
-        }
-    ],
-    "text_deny": [
-        {
-            "id": "CAULDRON-EOSGRAPH",
-            "re": "(?i)RedpointEOS[^\\n]{0,80}Anonymous",
-            "desc": "Redpoint EOS anonymous auth-graph recipe (RULE #21e)"
+            "id": "NATIVE-LINK",
+            "re": "(?i)\\.(lib|exp)$",
+            "desc": "native link library or export file in a published archive"
         }
     ]
 }

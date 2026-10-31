@@ -23,6 +23,9 @@ Source A2S on UDP `GameplayPort + 2` (default 17779): the server name, the map (
 ### 🔁 World snapshots
 `save snapshot` (RCON) or the admin API zips the world and player saves under the host's `Saved\SaveGames`, without the `Backups` copies the game keeps inside each world folder. A restore stops the game, takes a snapshot of the current world first, swaps the chosen one in and starts the game again. The Cauldron app's World window drives the same calls.
 
+### 💬 In-game chat
+Players press T to talk to everyone on the server. Needs the Cauldron app 0.1.22 or newer. It is on by default; to turn it off, add `"Chat": { "InGameEnabled": false }` inside the `Cauldron` section of `appsettings.json`.
+
 ### 🔐 Admin API
 HTTP on TCP `GameplayPort + 4` (default 17781). `/api/v1/health` is public so a panel or the app can poll it; everything else needs a signed request whose key is derived from `RconPassword`, and the API is off while that password is empty.
 

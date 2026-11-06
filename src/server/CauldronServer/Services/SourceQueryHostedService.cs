@@ -61,9 +61,9 @@ public sealed class SourceQueryHostedService : IHostedService, IAsyncDisposable
         SteamAppId: 2679100,                          // real Steam AppID — written as 64-bit GameID in EDF
         PlayerCount: _state.EffectivePlayerCount,
         MaxPlayers: _opts.MaxPlayers,
-        // No join password exists on a Witchspire host, so never advertise one
-        // (the Cauldron app would prompt for a password nothing checks).
-        PasswordRequired: false,
+        // A password is advertised only when the hosting panel placed the join gate with one
+        // (Cauldron:JoinPasswordRequired); the Cauldron app then asks the player for it.
+        PasswordRequired: _opts.JoinPasswordRequired,
         VacSecured: false,
         Version: $"cauldron-{CauldronVersionInfo.CauldronVersion}/ws-{CauldronVersionInfo.CauldronBuild}",
         GameplayPort: _opts.GameplayPort,

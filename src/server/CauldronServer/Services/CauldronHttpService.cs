@@ -283,6 +283,9 @@ public sealed class CauldronHttpService : BackgroundService
                     player_count = _pipeState.EffectivePlayerCount,
                     plugin_connected = _pipeState.Connection is not null,
                     last_heartbeat_age_seconds = heartbeatAgeSeconds,
+                    // The join password gate (JoinGateState): null when the server has no password.
+                    join_gate = JoinGateState.Shared.Status(_opts.JoinPasswordRequired, DateTimeOffset.UtcNow),
+                    join_gate_since_unix = JoinGateState.Shared.NotRunningSinceUnix(_opts.JoinPasswordRequired, DateTimeOffset.UtcNow),
                 });
                 return;
             }

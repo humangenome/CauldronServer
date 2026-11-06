@@ -55,6 +55,15 @@ public sealed class CauldronServerOptions
     /// </summary>
     public string CauldronAuthPassword { get; set; } = "";
 
+    /// <summary>
+    /// The server has a join password, enforced in the game by the gate scripts (angelscript-mods/cauldron_gate)
+    /// that the hosting panel places next to the world with the password written in. When true, A2S tells server
+    /// browsers and the Cauldron app a password is needed (so the app asks the player for it), and the public
+    /// health report carries join_gate (on / starting / not_running). The password itself never reaches
+    /// CauldronServer. A self-hosted server has no gate placement yet: leave this false there.
+    /// </summary>
+    public bool JoinPasswordRequired { get; set; }
+
     public string ServerName { get; set; } = "";
 
     public string GameInstallRoot { get; set; } = @"C:\Cauldron\game";

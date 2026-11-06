@@ -74,7 +74,7 @@ public sealed class HostRosterLogService : BackgroundService
                 }
 
                 using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                if (fs.Length < _position) _position = 0; // log rotated/truncated on restart
+                if (fs.Length < _position) { _position = 0; JoinGateState.Shared.Reset(); } // log rotated/truncated on restart
                 fs.Seek(_position, SeekOrigin.Begin);
                 using var sr = new StreamReader(fs, Encoding.UTF8);
                 string? line;
@@ -115,6 +115,7 @@ public sealed class HostRosterLogService : BackgroundService
 
     private void ProcessLine(string line)
     {
+        JoinGateState.Shared.Observe(line, DateTimeOffset.UtcNow);
         var parsed = TryParseRoster(line);
         if (parsed is null) return;
         var (count, names) = parsed.Value;

@@ -4,7 +4,7 @@ namespace Cauldron.Protocol;
 
 /// <summary>
 /// Wire protocol between Cauldron.dll (UE4SS plugin loaded into the Witchspire
-/// process) and CauldronServer.exe (.NET 8 supervisor). Bumped on any
+/// process) and CauldronServer.exe (.NET 10 supervisor). Bumped on any
 /// breaking schema change.
 /// </summary>
 public static class ProtocolVersion

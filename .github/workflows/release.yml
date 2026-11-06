@@ -22,19 +22,28 @@ jobs:
 
       - name: Guard the published source
         shell: bash
+        env:
+          DENY_PATTERN: ${{ secrets.CAULDRON_DENY_PATTERN }}
         run: |
           # This repo is public. A short deny list guards against terms that must
-          # not appear here — internal hosting references and residue from sibling
-          # projects. The list itself is encoded so it does not become a hint.
-          # A hit fails the release rather than publishing it.
+          # not appear here. The list lives in the repository secret
+          # CAULDRON_DENY_PATTERN (one extended regular expression), not in this
+          # file: an encoded copy here published the very words it guards. A hit
+          # fails the release rather than publishing it, and only the file and
+          # line are printed, because CI logs are public.
           #
-          # release.yml and the published-artifact scanner both carry the deny
-          # list as data, so both are excluded. Without the second exclusion the
-          # guard trips on the scanner's own rule table and no release can run.
-          BANNED="$(printf '%s' 'R29sZGJlcmd8Z29sZGJlcmd8Z2JlX2Zvcmt8c3RlYW1fYXBpNjR8c3RlYW1fc2V0dGluZ3N8QXV0aGVudGljYXRpb25HcmFwaHxCZWxsd3JpZ2h0fEthcnZlbmlhfE1pc3RPYXNpc3xTdWJuYXV0aWNhfEtyYWZ0b258QmVhY29uU2VydmVyfFBPUlQgRlJPTXxzc3BhbmVsfGItY2RuXC5uZXQ=' | base64 -d)"
-          if grep -rInE "$BANNED" --exclude-dir=.git --exclude=release.yml \
-               --exclude=verify-published-artifacts.py --exclude=artifact-scan.yml . ; then
-            echo "::error::deny-listed term found in the published source"
+          # The published-artifact scanner and its workflow carry rule tables as
+          # data, so both are excluded.
+          BANNED="$(printf '%s' "$DENY_PATTERN" | tr -d '\r\n')"
+          if [ -z "$BANNED" ]; then
+            echo "::error::the deny list secret CAULDRON_DENY_PATTERN is not set; refusing to release unchecked source"
+            exit 1
+          fi
+          hits="$(grep -rnIE -e "$BANNED" --exclude-dir=.git \
+               --exclude=verify-published-artifacts.py --exclude=artifact-scan.yml . | cut -d: -f1,2 || true)"
+          if [ -n "$hits" ]; then
+            echo "::error::deny-listed term found in the published source (file and line; the term is not shown):"
+            printf '%s\n' "$hits"
             exit 1
           fi
           echo "clean"

@@ -3,6 +3,14 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.23] - 2026-11-06
+
+### Changed
+- Runs on .NET 10. Building it yourself needs the .NET 10 SDK.
+
+### Added
+- `JoinPasswordRequired` in the `Cauldron` section of `appsettings.json` (off by default): the server tells server browsers it has a password, and `/api/v1/health` reports `join_gate`. The password check itself is not part of this release for self-hosted servers.
+
 ## [0.1.22] - 2026-10-25
 
 ### Added

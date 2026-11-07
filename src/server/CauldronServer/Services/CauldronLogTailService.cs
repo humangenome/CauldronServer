@@ -75,7 +75,10 @@ public sealed class CauldronLogTailService : BackgroundService
     private readonly object _playerGate = new();
     private long _position;
     private string? _lastBuildLogged;
-    private bool _tailReadyForPlayerEvents;
+    private volatile bool _tailReadyForPlayerEvents;
+
+    /// <summary>True once the lines already in the log at start have been read; joins from then on count.</summary>
+    internal bool TailReadyForPlayerEvents => _tailReadyForPlayerEvents;
 
     public CauldronLogTailService(ILogger<CauldronLogTailService> log, IOptions<CauldronServerOptions> opts, PipeServerState state)
     {

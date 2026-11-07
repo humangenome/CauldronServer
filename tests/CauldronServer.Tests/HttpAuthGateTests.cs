@@ -26,6 +26,20 @@ public sealed class HttpAuthGateTests
         HttpAuthGate.Evaluate(key ?? Key, method, path, ts.ToString(), sig, sha, hasBody, len, 64L * 1024 * 1024, Now, 300);
 
     [Fact]
+    public void Only_a_fresh_well_formed_wrong_signature_counts_as_a_guess()
+    {
+        var wrong = HttpAuthGate.Sign(SHA256.HashData(Encoding.UTF8.GetBytes("guess")), "GET", "/api/v1/info", Now, HttpAuthGate.EmptySha256);
+        var right = HttpAuthGate.Sign(Key, "GET", "/api/v1/info", Now, HttpAuthGate.EmptySha256);
+        Eval("GET", "/api/v1/info", Now, wrong, null, false, 0).WrongSignature.Should().BeTrue();
+        Eval("GET", "/api/v1/info", Now, right, null, false, 0).WrongSignature.Should().BeFalse();
+        Eval("GET", "/api/v1/info", Now - 3600, wrong, null, false, 0).WrongSignature.Should().BeFalse("a stale timestamp is a clock problem");
+        Eval("GET", "/api/v1/info", Now, "zz" + wrong[2..], null, false, 0).WrongSignature.Should().BeFalse("malformed, not a guess");
+        Eval("GET", "/api/v1/info", Now, null, null, false, 0).WrongSignature.Should().BeFalse();
+        var bigWrong = HttpAuthGate.Sign(SHA256.HashData(Encoding.UTF8.GetBytes("guess")), "POST", "/api/v1/snapshots", Now, BigSha);
+        Eval("POST", "/api/v1/snapshots", Now, bigWrong, BigSha, true, 200_000).WrongSignature.Should().BeTrue();
+    }
+
+    [Fact]
     public void NoAdminPassword_RefusesEverySignedRoute()
     {
         var sig = HttpAuthGate.Sign(Key, "GET", "/api/v1/info", Now, HttpAuthGate.EmptySha256);
@@ -268,7 +282,7 @@ public sealed class HttpAuthGateTests
         ((int)motd.StatusCode).Should().Be(200);
     }
 
-    private sealed class LiveHarness : IAsyncDisposable
+    internal sealed class LiveHarness : IAsyncDisposable
     {
         private readonly HttpTempDir _temp;
         private readonly CauldronHttpService _service;
@@ -281,7 +295,7 @@ public sealed class HttpAuthGateTests
             _temp = temp; _service = service; Port = port; Key = key; SaveDir = saveDir;
         }
 
-        public static async Task<LiveHarness> StartAsync()
+        public static async Task<LiveHarness> StartAsync(Microsoft.Extensions.Logging.ILogger<CauldronHttpService>? log = null)
         {
             var temp = new HttpTempDir("cauldron-http-live-");
             var port = FreePort();
@@ -301,7 +315,7 @@ public sealed class HttpAuthGateTests
             var saves = new SaveOrchestratorService(NullLogger<SaveOrchestratorService>.Instance, o, pipe,
                 new CauldronRestartCoordinator(NullLogger<CauldronRestartCoordinator>.Instance, o));
             var service = new CauldronHttpService(
-                NullLogger<CauldronHttpService>.Instance, o, new ConfigurationBuilder().Build(), saves, pipe,
+                log ?? NullLogger<CauldronHttpService>.Instance, o, new ConfigurationBuilder().Build(), saves, pipe,
                 new InstanceIdentityProvider(o), new ChatService(NullLogger<ChatService>.Instance, new FixedMonitor(opts)));
             await service.StartAsync(CancellationToken.None);
             var h = new LiveHarness(temp, service, port, SHA256.HashData(Encoding.UTF8.GetBytes(opts.RconPassword)), opts.SaveDir);
@@ -320,14 +334,15 @@ public sealed class HttpAuthGateTests
             return Directory.Exists(dir) ? Directory.GetFiles(dir) : Array.Empty<string>();
         }
 
-        public async Task<int> SignedAsync(string method, string path, byte[] body, bool sendSha, long? ts = null)
+        public async Task<int> SignedAsync(string method, string path, byte[] body, bool sendSha, long? ts = null,
+            IPAddress? from = null, byte[]? signKey = null)
         {
             var t = ts ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var sha = Sha(body);
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            using var req = new HttpRequestMessage(new HttpMethod(method), $"http://127.0.0.1:{Port}{path}");
+            using var req = new HttpRequestMessage(new HttpMethod(method), $"http://{from ?? IPAddress.Loopback}:{Port}{path}");
             req.Headers.Add("X-Cauldron-Timestamp", t.ToString());
-            req.Headers.Add("X-Cauldron-Signature", HttpAuthGate.Sign(Key, method, path.Split('?')[0], t, sha));
+            req.Headers.Add("X-Cauldron-Signature", HttpAuthGate.Sign(signKey ?? Key, method, path.Split('?')[0], t, sha));
             if (sendSha) req.Headers.Add("X-Cauldron-Content-Sha256", sha);
             if (body.Length > 0) req.Content = new ByteArrayContent(body);
             using var resp = await http.SendAsync(req);

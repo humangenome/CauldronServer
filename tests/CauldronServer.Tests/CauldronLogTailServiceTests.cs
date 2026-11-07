@@ -53,7 +53,9 @@ public class CauldronLogTailServiceTests
         await service.StartAsync(CancellationToken.None);
         try
         {
-            await Task.Delay(250);
+            // Wait for the start-up read of the existing lines to finish. A fixed 250 ms was too short on
+            // a busy CI runner: the new lines then landed inside the start-up read and were never counted.
+            await WaitUntilAsync(() => service.TailReadyForPlayerEvents, TimeSpan.FromSeconds(10));
             state.EffectivePlayerCount.Should().Be(0);
 
             await File.AppendAllTextAsync(logPath, string.Join(Environment.NewLine, new[]

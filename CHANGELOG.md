@@ -3,6 +3,15 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.24] - 2026-11-07
+
+### Security
+- After 5 wrong RCON passwords or wrongly signed admin requests from one address within 10 minutes, the server turns that address away for 1 minute, doubling each time up to 15 minutes. A right password clears the count.
+- RCON takes at most 3 connections from one address, and closes a connection that has not logged in within 10 seconds.
+
+### Fixed
+- RCON and the server-list query keep answering after a network error. One error used to stop them until the server restarted.
+
 ## [0.1.23] - 2026-11-06
 
 ### Changed

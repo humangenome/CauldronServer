@@ -724,6 +724,7 @@ public sealed class CauldronHttpService : BackgroundService
     {
         if (SourceGuard.Failure(source, SourceGuard.NowMs()))
             _log.LogWarning("{BlockLine}", SourceGuard.BlockLine("http", source, SourceGuard.NowMs()));
+        if (SourceGuard.TakeNotice() is { } tableNotice) _log.LogWarning("{Notice}", tableNotice);
     }
 
     // Slow-client limits on the Windows HTTP stack: a client that stops sending its

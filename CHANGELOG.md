@@ -3,6 +3,14 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.25] - 2026-11-12
+
+### Security
+- Stronger protection against floods of wrong password tries.
+
+### Added
+- The server download includes its licence (LICENSE.txt).
+
 ## [0.1.24] - 2026-11-07
 
 ### Security

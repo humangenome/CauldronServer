@@ -3,6 +3,9 @@
     <RootNamespace>Cauldron.SourceQuery</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="CauldronServer.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../shared/Cauldron.Abstractions/Cauldron.Abstractions.csproj" />
   </ItemGroup>
 </Project>

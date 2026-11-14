@@ -217,7 +217,10 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
             var snapshotPath = Path.Combine(_opts.SaveDir, $"{snapshotId}.zip");
             var tmpPath = snapshotPath + ".tmp";
-            CreateSaveGamesZip(sourceDir, tmpPath);
+            var linksLeftOut = CreateSaveGamesZip(sourceDir, tmpPath, SecondDriveRule.ForUserFolder(_opts.GameUserDir));
+            if (linksLeftOut.Count > 0)
+                _log.LogWarning("Snapshot {Id}: {Count} link(s) in the save folder were left out, not followed: {Links}",
+                    snapshotId, linksLeftOut.Count, string.Join(", ", linksLeftOut.Take(10)));
             File.Move(tmpPath, snapshotPath);
 
             var size = new FileInfo(snapshotPath).Length;
@@ -268,15 +271,23 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
         }
     }
 
-    private static void CreateSaveGamesZip(string sourceDir, string destinationPath)
+    /// <summary>
+    /// Zips the save tree to <paramref name="destinationPath"/> and returns the links in it that were
+    /// left out. The walk never follows a link (<see cref="SnapshotWalk"/>), and the file list is made
+    /// before the zip exists, so a save folder under any link but the server's own folder kept on a
+    /// second drive is refused with nothing written. Zip names are relative to the real save folder.
+    /// </summary>
+    internal static List<string> CreateSaveGamesZip(string sourceDir, string destinationPath, SecondDriveRule? rule = null)
     {
+        var linksLeftOut = new List<string>();
+        var files = EnumerateSnapshotFiles(sourceDir, linksLeftOut, out var walkedRoot, rule);
         using var archive = System.IO.Compression.ZipFile.Open(
             destinationPath,
             System.IO.Compression.ZipArchiveMode.Create);
 
-        foreach (var file in EnumerateSnapshotFiles(sourceDir))
+        foreach (var file in files)
         {
-            var relativePath = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
+            var relativePath = Path.GetRelativePath(walkedRoot, file).Replace('\\', '/');
             var info = new FileInfo(file);
             if (info.Length == 0 && IsRootSaveSlotPath(relativePath))
             {
@@ -285,6 +296,8 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
             archive.CreateEntryFromFile(file, relativePath, System.IO.Compression.CompressionLevel.Optimal);
         }
+
+        return linksLeftOut;
     }
 
     /// <summary>
@@ -292,24 +305,18 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
     /// <c>Backups</c> folder. Witchspire keeps adding its own copies of the world
     /// there and never prunes them (one long-lived server had 99,313 files,
     /// 503 MB), so zipping it made each snapshot minutes long and hundreds of MB.
-    /// The folder is skipped without being walked.
+    /// The folder is skipped without being walked. No link is followed (<see cref="SnapshotWalk"/>).
     /// </summary>
-    internal static IEnumerable<string> EnumerateSnapshotFiles(string sourceDir)
-    {
-        var pending = new Stack<string>();
-        pending.Push(sourceDir);
-        while (pending.Count > 0)
-        {
-            var dir = pending.Pop();
-            foreach (var file in Directory.EnumerateFiles(dir))
-                yield return file;
-            foreach (var sub in Directory.EnumerateDirectories(dir))
-            {
-                if (IsGameBackupPath(Path.GetRelativePath(sourceDir, sub))) continue;
-                pending.Push(sub);
-            }
-        }
-    }
+    internal static IEnumerable<string> EnumerateSnapshotFiles(string sourceDir) =>
+        EnumerateSnapshotFiles(sourceDir, new List<string>(), out _);
+
+    /// <summary>
+    /// The same files; the links left out are added to <paramref name="linksLeftOut"/>, and
+    /// <paramref name="walkedRoot"/> is the real save folder they sit under (<see cref="SnapshotWalk"/>).
+    /// </summary>
+    internal static List<string> EnumerateSnapshotFiles(string sourceDir, ICollection<string> linksLeftOut, out string walkedRoot,
+        SecondDriveRule? rule = null) =>
+        SnapshotWalk.PlainFiles(sourceDir, linksLeftOut, out walkedRoot, IsGameBackupPath, rule);
 
     /// <summary>
     /// Is this path (relative to SaveGames) the game's own backup folder of a world,

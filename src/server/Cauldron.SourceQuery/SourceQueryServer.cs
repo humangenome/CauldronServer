@@ -25,6 +25,14 @@ public sealed class SourceQueryServer : IDisposable
     private readonly Random _challengeRng = new();
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private int _closedPortReports;
+
+    // Windows turns an ICMP "port unreachable" for an earlier reply into a "connection reset" error on
+    // a later receive (SIO_UDP_CONNRESET), and a TTL-expired one into "network reset" (SIO_UDP_NETRESET).
+    // A query responder has no connection to reset, so both reports are switched off: a reply that lands
+    // on a closed port is simply lost, as it is on Linux.
+    private const int SioUdpConnReset = unchecked((int)0x9800000C);
+    private const int SioUdpNetReset = unchecked((int)0x9800000F);
 
     // <param name="queryObserver">Optional diagnostic callback invoked for every
     // recognized A2S query as (queryType, remoteEndpoint). Pure logging hook —
@@ -37,8 +45,30 @@ public sealed class SourceQueryServer : IDisposable
         Func<IReadOnlyList<KeyValuePair<string, string>>> rulesProvider,
         Func<bool>? availabilityProvider = null,
         Action<string, string>? queryObserver = null)
+        : this(port, infoProvider, playerProvider, rulesProvider, availabilityProvider, queryObserver,
+            ignoreClosedPortReports: true)
+    {
+    }
+
+    // ignoreClosedPortReports=false leaves Windows' reports on, so a test can prove the receive loop
+    // outlives them too.
+    internal SourceQueryServer(
+        int port,
+        Func<ServerInfoSnapshot> infoProvider,
+        Func<IReadOnlyList<PlayerInfoEntry>> playerProvider,
+        Func<IReadOnlyList<KeyValuePair<string, string>>> rulesProvider,
+        Func<bool>? availabilityProvider,
+        Action<string, string>? queryObserver,
+        bool ignoreClosedPortReports)
     {
         _udp = new UdpClient(port);
+        if (ignoreClosedPortReports && OperatingSystem.IsWindows())
+        {
+            // Never fatal: if a Windows build refuses either one, the receive loop below still goes
+            // straight on past each report.
+            try { _udp.Client.IOControl(SioUdpConnReset, new byte[4], null); } catch (Exception) { }
+            try { _udp.Client.IOControl(SioUdpNetReset, new byte[4], null); } catch (Exception) { }
+        }
         _infoProvider = infoProvider;
         _playerProvider = playerProvider;
         _rulesProvider = rulesProvider;
@@ -47,6 +77,10 @@ public sealed class SourceQueryServer : IDisposable
     }
 
     public int BoundPort => ((IPEndPoint)_udp.Client.LocalEndPoint!).Port;
+
+    // How many receives ended in a closed-port or TTL report. Stays 0 on Windows while the reports
+    // are switched off, and on Linux, which never reports them on a receive.
+    internal int ClosedPortReports => Volatile.Read(ref _closedPortReports);
 
     public Task StartAsync(CancellationToken ct)
     {
@@ -77,10 +111,19 @@ public sealed class SourceQueryServer : IDisposable
             try { res = await _udp.ReceiveAsync(ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { return; }
             catch (ObjectDisposedException) { return; }
-            catch (System.Net.Sockets.SocketException)
+            catch (SocketException ex) when (ex.SocketErrorCode is SocketError.ConnectionReset or SocketError.NetworkReset)
             {
-                // On Windows a reply sent to a closed port makes the next receive throw. That ended
-                // the loop for good and the server stopped answering queries, with nothing logged.
+                // A report that an earlier reply landed on a closed port (Windows, where switching the
+                // reports off failed or was not asked for). The socket is fine and the next query may
+                // already be waiting, so go straight on. This used to end the loop for good, and later
+                // paused it 50 ms per report, so a burst of them kept real queries waiting for seconds.
+                Interlocked.Increment(ref _closedPortReports);
+                continue;
+            }
+            catch (SocketException)
+            {
+                // Any other receive error: a short pause so an error that repeats cannot spin the
+                // processor, then carry on answering.
                 try { await Task.Delay(50, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { return; }
                 continue;

@@ -3,6 +3,11 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.26] - 2026-11-14
+
+### Fixed
+- Server backup fixes.
+
 ## [0.1.25] - 2026-11-12
 
 ### Security

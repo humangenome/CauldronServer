@@ -23,7 +23,7 @@ public class RconReplyTextTests
     [Fact]
     public void Players_None()
     {
-        Assert.Equal("no players online", RconHostedService.FormatPlayers(Array.Empty<PlayerSnapshot>(), 8, Now));
+        Assert.Equal("No players online", RconHostedService.FormatPlayers(Array.Empty<PlayerSnapshot>(), 8, Now));
     }
 
     [Fact]

@@ -12,7 +12,8 @@ namespace CauldronServer.Services;
 /// Tails the Witchspire host UE log (<c>{GameUserDir}\ws-ue.log</c>) for the host
 /// mod's authoritative roster line and pushes the live player list into
 /// <see cref="PipeServerState"/> so <see cref="SourceQueryHostedService"/> reports
-/// the real A2S player count (and the HTTP /players endpoint shows the same).
+/// the real A2S player count (and the HTTP /players endpoint shows the same). It also
+/// reads the game's build banner from the same log (<see cref="CauldronVersionInfo.TryParseBuildBanner"/>).
 ///
 /// Why this exists (v0.1.6): the original count source was a UE4SS Lua roster mod
 /// writing <c>roster.json</c> (see <see cref="RosterFileWatcherService"/>), but UE4SS
@@ -116,6 +117,18 @@ public sealed class HostRosterLogService : BackgroundService
     private void ProcessLine(string line)
     {
         JoinGateState.Shared.Observe(line, DateTimeOffset.UtcNow);
+        // The game's build banner comes once near the top of each run's log. It feeds the health
+        // reply's cauldron_build and the A2S version, which read "unknown" until this line is seen.
+        var build = CauldronVersionInfo.TryParseBuildBanner(line);
+        if (build is not null)
+        {
+            if (!string.Equals(build, CauldronVersionInfo.CauldronBuild, StringComparison.Ordinal))
+            {
+                CauldronVersionInfo.SetCauldronBuild(build);
+                _log.LogInformation("[roster] game build {Build}", build);
+            }
+            return;
+        }
         var parsed = TryParseRoster(line);
         if (parsed is null) return;
         var (count, names) = parsed.Value;

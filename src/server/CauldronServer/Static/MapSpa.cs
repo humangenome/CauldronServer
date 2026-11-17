@@ -39,7 +39,7 @@ internal static class MapSpa
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cauldron — Live Map</title>
+<title>Cauldron live map</title>
 <style>
   html, body { height: 100%; margin: 0; background: #0b1620; color: #cfd8e3;
     font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
@@ -71,13 +71,13 @@ internal static class MapSpa
 <div id="wrap">
   <canvas id="map"></canvas>
   <div id="hud">
-    <div class="row"><span class="label">server</span><span id="hud-server">connecting…</span></div>
-    <div class="row"><span class="label">players</span><span id="hud-count">—</span></div>
-    <div class="row"><span class="label">world</span><span id="hud-world">—</span></div>
-    <div class="row"><span class="label">status</span><span id="hud-status">—</span></div>
+    <div class="row"><span class="label">Server</span><span id="hud-server">Connecting…</span></div>
+    <div class="row"><span class="label">Players</span><span id="hud-count">-</span></div>
+    <div class="row"><span class="label">World</span><span id="hud-world">-</span></div>
+    <div class="row"><span class="label">Status</span><span id="hud-status">-</span></div>
   </div>
   <div id="list"></div>
-  <div id="footer">Cauldron · <span id="cauldron-version">—</span></div>
+  <div id="footer">Cauldron · <span id="cauldron-version">-</span></div>
 </div>
 <script>
 (function () {
@@ -158,39 +158,45 @@ internal static class MapSpa
       ctx.fillStyle = '#e8edf3';
       ctx.font = '12px -apple-system,Segoe UI,Roboto,sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(p.name || 'player', px + 11, py + 4);
+      ctx.fillText(p.name || 'Player', px + 11, py + 4);
     }
   }
 
   function renderHud() {
     hudCount.textContent = state.players.length;
-    hudWorld.textContent = (state.world && state.world.name) || '—';
+    hudWorld.textContent = (state.world && state.world.name) || '-';
     if (lastError) {
       hudStatus.innerHTML = '<span class="err">' + lastError + '</span>';
     } else if (state.stale) {
-      hudStatus.innerHTML = '<span class="warn">stale</span>';
+      hudStatus.innerHTML = '<span class="warn">Not updating</span>';
     } else if (state.unix_ms) {
-      hudStatus.innerHTML = '<span class="ok">live</span>';
+      hudStatus.innerHTML = '<span class="ok">Live</span>';
     } else {
-      hudStatus.textContent = '—';
+      hudStatus.textContent = '-';
     }
 
     var rows = '';
     for (var i = 0; i < state.players.length; i++) {
       var p = state.players[i];
       rows += '<div class="p"><span class="dot"></span><span class="name">'
-        + (p.name || 'player') + '</span> <span class="coord">'
+        + (p.name || 'Player') + '</span> <span class="coord">'
         + Math.round(p.x) + ',' + Math.round(p.y) + '</span></div>';
     }
     listEl.innerHTML = rows;
   }
 
+  function shown(text) {
+    var e = new Error(text);
+    e.shown = true;
+    return e;
+  }
+
   function poll() {
     fetch('/api/v1/map/state', { cache: 'no-store' })
       .then(function (r) {
-        if (r.status === 401) throw new Error('map is private — enable Map.Public');
-        if (r.status === 404) throw new Error('map disabled');
-        if (!r.ok) throw new Error('http ' + r.status);
+        if (r.status === 401) throw shown('This map is private. The server owner can turn on Map.Public.');
+        if (r.status === 404) throw shown('The live map is off on this server.');
+        if (!r.ok) throw shown("Couldn't load the map. Trying again.");
         return r.json();
       })
       .then(function (data) {
@@ -204,7 +210,8 @@ internal static class MapSpa
         renderHud();
       })
       .catch(function (err) {
-        lastError = (err && err.message) ? err.message : 'fetch failed';
+        // The browser's own error text (a dropped connection, a bad reply) is never shown.
+        lastError = (err && err.shown) ? err.message : "Couldn't reach the server. Trying again.";
         renderHud();
       })
       .then(function () { setTimeout(poll, POLL_INTERVAL_MS); });

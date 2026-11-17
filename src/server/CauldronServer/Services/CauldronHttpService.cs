@@ -275,7 +275,7 @@ public sealed class CauldronHttpService : BackgroundService
                 {
                     ok = online,
                     instance = _identity.InstanceId,
-                    server_name = string.IsNullOrWhiteSpace(_opts.ServerName) ? $"Cauldron - {_identity.InstanceId}" : _opts.ServerName.Trim(),
+                    server_name = string.IsNullOrWhiteSpace(_opts.ServerName) ? $"Cauldron server ({_identity.InstanceId})" : _opts.ServerName.Trim(),
                     cauldron_version = CauldronVersionInfo.CauldronVersion,
                     cauldron_build = CauldronVersionInfo.CauldronBuild,
                     gameplay_port = _opts.GameplayPort,
@@ -328,7 +328,7 @@ public sealed class CauldronHttpService : BackgroundService
                 {
                     manifest_version = 1,
                     instance = _identity.InstanceId,
-                    server_name = string.IsNullOrWhiteSpace(_opts.ServerName) ? $"Cauldron - {_identity.InstanceId}" : _opts.ServerName.Trim(),
+                    server_name = string.IsNullOrWhiteSpace(_opts.ServerName) ? $"Cauldron server ({_identity.InstanceId})" : _opts.ServerName.Trim(),
                     cauldron_version = CauldronVersionInfo.CauldronVersion,
                     generated_unix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                     required = (mods.Required ?? new()).Select(SerializeEntry),
@@ -898,7 +898,7 @@ public sealed class CauldronHttpService : BackgroundService
             instance = _identity.InstanceId,
             cauldron_version = CauldronVersionInfo.CauldronVersion,
             server_name = string.IsNullOrWhiteSpace(_opts.ServerName)
-                ? $"Cauldron - {_identity.InstanceId}"
+                ? $"Cauldron server ({_identity.InstanceId})"
                 : _opts.ServerName.Trim(),
             unix_ms = unixMs,
             stale,

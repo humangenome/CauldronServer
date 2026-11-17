@@ -66,7 +66,10 @@ public sealed class SourceQueryLoopTests
             {
                 if (Interlocked.Increment(ref handled) == ClosedPortAsks) allHandled.TrySetResult();
             },
-            ignoreClosedPortReports: ignoreClosedPortReports);
+            ignoreClosedPortReports: ignoreClosedPortReports,
+            // All 40 asks come from 127.0.0.1; a budget far above them keeps this test about closed ports
+            // only (SourceQueryChallengeTests covers the per-address limit).
+            limits: new ReplyLimits(Burst: 1000, PerSecond: 1000, MaxTrackedAddresses: 8192));
         await server.StartAsync(CancellationToken.None);
         try
         {

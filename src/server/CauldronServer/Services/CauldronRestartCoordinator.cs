@@ -29,6 +29,10 @@ public sealed class CauldronRestartCoordinator
     private readonly ILogger<CauldronRestartCoordinator> _log;
     private readonly CauldronServerOptions _opts;
     private readonly SemaphoreSlim _restoreGate = new(1, 1);
+    private int _killRequests;
+
+    /// <summary>How many times <see cref="KillGame"/> was called (tests: it does nothing off Windows).</summary>
+    internal int KillRequests => Volatile.Read(ref _killRequests);
 
     public CauldronRestartCoordinator(ILogger<CauldronRestartCoordinator> log, IOptions<CauldronServerOptions> opts)
     {
@@ -57,6 +61,7 @@ public sealed class CauldronRestartCoordinator
     /// </summary>
     public void KillGame(TimeSpan waitForExit)
     {
+        Interlocked.Increment(ref _killRequests);
         if (!OperatingSystem.IsWindows()) return;
 
         var installRoot = NormalizeForCompare(_opts.GameInstallRoot);

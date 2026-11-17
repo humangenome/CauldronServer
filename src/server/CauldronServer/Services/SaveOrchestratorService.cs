@@ -47,6 +47,19 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
     public CauldronDb Database => _db;
 
+    /// <summary>Free bytes on the disk under a path (tests replace it).</summary>
+    internal Func<string, long?> FreeSpaceProbe { get; set; } = RestoreZipLimits.FreeBytesOf;
+
+    private RestoreZipLimits.Caps RestoreCaps => new(
+        _opts.MaxRestoreUnpackedBytes, _opts.MaxRestoreEntries, _opts.MaxRestoreEntryBytes, _opts.RestoreFreeSpaceFloorBytes);
+
+    private long? RestoreFreeBytes()
+    {
+        if (_opts.RestoreFreeSpaceFloorBytes <= 0) return null;
+        var saved = Path.Combine(_opts.GameUserDir, "Saved");
+        return FreeSpaceProbe(saved);
+    }
+
     /// <summary>True while the auto-snapshot watcher is on (tests and diagnostics).</summary>
     internal bool AutoSnapshotsOn => _watcher is not null;
 
@@ -459,6 +472,38 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
         using var _ = await _coordinator.BeginRestoreAsync(ct).ConfigureAwait(false);
 
+        // 0. Check the zip BEFORE stopping anything: a zip with no world at the root (almost certainly
+        // the wrong folder zipped), one that unpacks to more than the caps allow, one with an entry whose
+        // path leaves the folder or whose name Windows would not store as a plain file, and one whose
+        // data is not the size it states is refused with the game still running and the world untouched.
+        // Until 2026-11-15 the world check ran after the kill, so a wrong zip stopped the world for
+        // nothing, and nothing limited what a zip unpacked to: a small zip could unpack to far more and
+        // fill the disk every server on the machine shares. Until 2026-11-17 a path that left the folder
+        // and a size that lied were caught only during the unpack, after the stop.
+        try
+        {
+            using var probe = System.IO.Compression.ZipFile.OpenRead(zipPath);
+            if (!ContainsWorldSave(probe.Entries.Select(e => (e.FullName, e.Length))))
+            {
+                _log.LogWarning("Restore rejected before stopping the game: zip {Path} has no world at its root (savegame_N/*.sav or savegame_N.sav)", zipPath);
+                return false;
+            }
+            // The directory first (cheap), then one read of the data, writing nothing; the read is bounded
+            // by the caps the first check just held the stated sizes to.
+            var why = RestoreZipLimits.CheckBeforeUnpack(probe, RestoreCaps, RestoreFreeBytes())
+                ?? RestoreZipLimits.CheckStatedSizesHold(probe);
+            if (why is not null)
+            {
+                _log.LogWarning("Restore refused before stopping the game: zip {Path} {Why}", zipPath, why);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Restore rejected before stopping the game: zip {Path} could not be opened or read", zipPath);
+            return false;
+        }
+
         // 1. Stop Witchspire first. Taking a snapshot BEFORE the kill would
         // capture whatever state Witchspire was mid-writing — which on a save
         // tick is half a savegame_0.sav. Kill, wait for exit, then snap.
@@ -485,32 +530,16 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             var stagingDir = saveGamesDir + ".incoming-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var prevDir = saveGamesDir + ".old-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            // Validate the zip BEFORE touching live SaveGames. A zip with no
-            // world at the root is almost certainly a customer zipping the
-            // wrong folder — refuse rather than wipe their world.
-            try
-            {
-                using var probe = System.IO.Compression.ZipFile.OpenRead(zipPath);
-                if (!ContainsWorldSave(probe.Entries.Select(e => (e.FullName, e.Length))))
-                {
-                    _log.LogWarning("Restore rejected: zip {Path} has no world at its root (savegame_N/*.sav or savegame_N.sav)", zipPath);
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "Restore rejected: zip {Path} could not be opened", zipPath);
-                return false;
-            }
+            // The zip's world and sizes were checked in step 0, before the game was stopped.
 
             bool savesMovedAside = false;
             try
             {
                 Directory.CreateDirectory(stagingDir);
-                // .NET 5+ ZipFile.ExtractToDirectory validates entries don't
-                // escape the destination (zip-slip is rejected with an
-                // IOException), so the staging dir is the canonical sandbox.
-                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, stagingDir, overwriteFiles: true);
+                // Entries may not escape the staging dir (zip-slip is an IOException), and the
+                // unpack stops the moment it writes more than the caps allow, whatever sizes the
+                // zip states; the staging dir is the sandbox and is removed on any failure below.
+                RestoreZipLimits.ExtractWithinCaps(zipPath, stagingDir, RestoreCaps, RestoreFreeBytes());
 
                 if (Directory.Exists(saveGamesDir))
                 {

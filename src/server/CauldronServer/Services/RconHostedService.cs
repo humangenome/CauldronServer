@@ -69,7 +69,7 @@ public sealed class RconHostedService : IHostedService
         _log.LogDebug("RCON dispatch: cmd={Cmd} argLen={ArgLen}", head, rest.Length);
         return head switch
         {
-            "help"     => "commands: status, players, ping, save snapshot, save list",
+            "help"     => "Commands: status, players, ping, save snapshot, save list",
             "status"   => BuildStatus(),
             "players"  => BuildPlayers(),
             "ping"     => "pong",
@@ -81,12 +81,12 @@ public sealed class RconHostedService : IHostedService
             // chat buffer, so answering "chat ok" told an admin a message went out when no
             // player could ever see it. Say so instead.
             "say" or "announce" or "motd" => NotDelivered,
-            _          => $"unknown rcon command: {head} (try: help)",
+            _          => $"Unknown command '{head}'. Type help for the list.",
         };
     }
 
     internal const string NotDelivered =
-        "not sent: Witchspire has no in-game message channel Cauldron can post to, so say, announce and motd are not available";
+        "Not sent. RCON can't post in-game messages, so say, announce and motd don't work.";
 
     private async Task<string> HandleSaveAsync(string sub)
     {
@@ -101,19 +101,19 @@ public sealed class RconHostedService : IHostedService
             // for admin-triggered.
             var rec = await _saves.SnapshotAsync("rcon").ConfigureAwait(false);
             return rec is null
-                ? "snapshot failed (check cauldron log; save dir likely missing)"
-                : $"snapshot ok: {rec.SnapshotId} ({rec.SizeBytes} bytes, sha={rec.Sha256Hex[..16]})";
+                ? "Couldn't make a backup. Check the server log in the logs folder beside CauldronServer.exe. The save folder may be missing."
+                : $"Backup saved: {rec.SnapshotId} ({rec.SizeBytes} bytes, sha={rec.Sha256Hex[..16]})";
         }
         if (arg == "list")
         {
             var snaps = _saves.Database.ListSnapshots(20);
-            if (snaps.Count == 0) return "no snapshots yet";
+            if (snaps.Count == 0) return "No backups yet";
             var sb = new System.Text.StringBuilder();
             foreach (var s in snaps)
                 sb.AppendLine($"{s.SnapshotId}  {s.SizeBytes}B  age={(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - s.TakenUnix)}s  sha={s.Sha256Hex[..16]}");
             return sb.ToString().TrimEnd();
         }
-        return "usage: save snapshot | save list";
+        return "Usage: save snapshot or save list";
     }
 
     private string BuildChat() =>
@@ -169,7 +169,7 @@ public sealed class RconHostedService : IHostedService
         // and told an admin nothing about the world.
         var heartbeatTimeout = TimeSpan.FromSeconds(Math.Max(1, _opts.PluginHeartbeatTimeoutSeconds));
         var running = _state.HasFreshHeartbeat(heartbeatTimeout) || GameProcessProbe.IsAlive(_opts.GamePidFile);
-        var name = string.IsNullOrWhiteSpace(_opts.ServerName) ? $"Cauldron - {_opts.InstanceId}" : _opts.ServerName.Trim();
+        var name = string.IsNullOrWhiteSpace(_opts.ServerName) ? $"Cauldron server ({_opts.InstanceId})" : _opts.ServerName.Trim();
         return FormatStatus(name, running, _state.EffectivePlayerCount, _opts.MaxPlayers, CauldronVersionInfo.CauldronVersion);
     }
 
@@ -184,7 +184,7 @@ public sealed class RconHostedService : IHostedService
     internal static string FormatPlayers(IReadOnlyList<PlayerSnapshot> players, int maxPlayers, long nowUnixMs)
     {
         if (players.Count == 0)
-            return "no players online";
+            return "No players online";
         var lines = players.Select(p =>
         {
             var name = string.IsNullOrEmpty(p.DisplayName) ? p.CauldronUserId : p.DisplayName;

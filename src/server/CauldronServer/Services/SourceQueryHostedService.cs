@@ -38,7 +38,8 @@ public sealed class SourceQueryHostedService : IHostedService, IAsyncDisposable
             BuildPlayers,
             BuildRules,
             IsGameOnline,
-            queryObserver: (type, remote) => _log.LogDebug("A2S query {Type} from {Remote}", type, remote));
+            queryObserver: (type, remote) => _log.LogDebug("A2S query {Type} from {Remote}", type, remote),
+            notice: line => _log.LogWarning("{Notice}", line));
         _log.LogInformation("Source A2S query listening on UDP {Port}", _server.BoundPort);
         return _server.StartAsync(ct);
     }
@@ -76,7 +77,7 @@ public sealed class SourceQueryHostedService : IHostedService, IAsyncDisposable
         // entry maps to (DisplayName, Score=0, ConnectionSeconds since
         // ConnectedAtUnixMs). If the plugin hasn't sent a snapshot yet
         // (or no players are connected) the list is empty — gametracker
-        // / panel tools show 'no players online' rather than a faked
+        // / panel tools show 'No players online' rather than a faked
         // count.
         var snap = _state.Players;
         if (snap.Count == 0) return Array.Empty<PlayerInfoEntry>();

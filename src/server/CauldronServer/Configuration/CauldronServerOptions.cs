@@ -40,6 +40,26 @@ public sealed class CauldronServerOptions
     /// </summary>
     public long MaxUploadBytes { get; set; } = 2L * 1024 * 1024 * 1024;
 
+    /// <summary>
+    /// What a world zip (restore, import, migrate) may unpack to, checked before the game is stopped
+    /// and before anything is written: all entries together, the number of entries, any one entry,
+    /// and the free space the unpack must leave on the disk. A small zip can unpack to far more than
+    /// its upload size. Sized for a real Witchspire save folder with the game's own Backups history,
+    /// which a player may zip with the world: the game copies the world every 15 minutes and never
+    /// deletes a copy, so a world that has run for about six weeks holds over 125,000 files and
+    /// about 2 GB (measured 2026-11-14).
+    /// </summary>
+    public long MaxRestoreUnpackedBytes { get; set; } = 8L * 1024 * 1024 * 1024;
+
+    /// <summary>See <see cref="MaxRestoreUnpackedBytes"/>.</summary>
+    public int MaxRestoreEntries { get; set; } = 250_000;
+
+    /// <summary>See <see cref="MaxRestoreUnpackedBytes"/>.</summary>
+    public long MaxRestoreEntryBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>See <see cref="MaxRestoreUnpackedBytes"/>. 0 turns the free-space check off.</summary>
+    public long RestoreFreeSpaceFloorBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+
     public string RconPassword { get; set; } = "";
 
     /// <summary>

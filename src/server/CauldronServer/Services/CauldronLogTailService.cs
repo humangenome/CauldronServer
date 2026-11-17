@@ -16,6 +16,12 @@ namespace CauldronServer.Services;
 ///
 /// Also looks for the Witchspire build banner on the first pass and registers it
 /// with <see cref="CauldronVersionInfo"/> so A2S responses can publish it.
+///
+/// Note (2026-11-12): the game never writes this file. The supervisor and the hosting panel
+/// both start it with <c>-abslog={GameUserDir}\ws-ue.log</c>, so this service has never found
+/// a log to read. The build banner is read from ws-ue.log by <see cref="HostRosterLogService"/>,
+/// and the player list comes from the host mod's roster line there. Retiring this service needs
+/// the public sync to delete files as well as copy them.
 /// </summary>
 public sealed class CauldronLogTailService : BackgroundService
 {

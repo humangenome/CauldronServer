@@ -1,7 +1,5 @@
 # Cauldron.Rcon
 
-Source RCON server on the RCON TCP port (gameplay port +2). Exposes admin verbs
-like `help`, `status`, `players`, `ping`, `save snapshot`, `save list`,
-`save restore`, plus settings/kick verbs.
+Source RCON server on the RCON TCP port (gameplay port +3). Commands: `help`, `status`, `players`, `ping`, `save snapshot`, `save list`.
 
-Standard Source RCON framing; the verb set targets the Witchspire admin surface.
+Standard Source RCON framing.

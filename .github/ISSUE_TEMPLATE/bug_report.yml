@@ -1,17 +1,17 @@
 name: Bug report
-description: Something in the Cauldron server, launcher, or host mod is broken
+description: Something in the Cauldron server, app or server mod is broken
 labels: ["bug", "needs-triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for filing a bug. Please make sure this is about Cauldron itself — not your hosting provider's panel, billing, or support.
+        Make sure this is about Cauldron itself, not your host's control panel, billing or support.
 
   - type: input
     id: cauldron-version
     attributes:
       label: Cauldron version
-      placeholder: "e.g. v0.1.12 — and which package: CauldronSetup-<version>.exe or Cauldron-Server-Windows-x64-v<version>.zip"
+      placeholder: "v0.1.26, CauldronSetup-0.1.26.exe"
     validations:
       required: true
 

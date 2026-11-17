@@ -7,6 +7,7 @@ All notable changes to CauldronServer are documented here. This project follows
 
 ### Fixed
 - Server backup fixes.
+- The server no longer stops answering server lists for about 2 seconds after a burst of queries from tools that have already closed.
 
 ## [0.1.25] - 2026-11-12
 

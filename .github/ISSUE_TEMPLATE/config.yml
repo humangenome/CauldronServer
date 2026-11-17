@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Cauldron Discussions
     url: https://github.com/HumanGenome/Cauldron/discussions
-    about: Questions, ideas, and general discussion — please use Discussions before opening an issue.
+    about: Questions and ideas go in Discussions.
   - name: Hosting support
     url: https://www.survivalservers.com/support
     about: If you bought a managed Cauldron server, support requests go to your hosting provider, not here.

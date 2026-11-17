@@ -17,7 +17,7 @@ All notable changes to CauldronServer are documented here. This project follows
 ## [0.1.26] - 2026-11-14
 
 ### Fixed
-- Server backup fixes.
+- Server backups now skip linked folders, so a backup only holds files from the server's own save folder. If you host your own server, update to 0.1.26.
 - The server no longer stops answering server lists for about 2 seconds after a burst of queries from tools that have already closed.
 
 ## [0.1.25] - 2026-11-12

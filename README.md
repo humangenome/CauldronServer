@@ -18,10 +18,10 @@ This repo holds the server's source. The Cauldron app and its installer are on [
 Type admin commands from any Source RCON tool or the Cauldron app's Console tab: `help`, `status`, `players`, `ping`, `save snapshot`, `save list`. Set an RCON password to turn it on.
 
 ### 📡 Shows up in server lists
-Server lists, monitoring tools and Discord bots can read the server's name, map and live player count.
+Server lists, monitoring tools and Discord bots can read the server's name, map and live player count. The server answers every query, server info included, with Valve's standard challenge first, and replies to each address only a limited number of times a second.
 
 ### 🔁 World backups
-`save snapshot` or the Cauldron app's World window backs up the world and every player's character. A restore backs up the current world first, then puts the chosen one in and restarts the game. Backups leave out the extra copies Witchspire keeps in each world's `Backups` folder.
+`save snapshot` or the Cauldron app's World window backs up the world and every player's character. A restore backs up the current world first, then puts the chosen one in and restarts the game. A zip with no world in it, or one that would unpack to more than 8 GB or 250,000 files, is refused before the game stops. Change those limits with `MaxRestoreUnpackedBytes` and `MaxRestoreEntries` in the `Cauldron` section of `appsettings.json`. Backups leave out the extra copies Witchspire keeps in each world's `Backups` folder.
 
 ### 💬 In-game chat
 Players press T to talk to everyone on the server. Needs the Cauldron app 0.1.22 or newer. It's on by default. To turn it off, add `"Chat": { "InGameEnabled": false }` inside the `Cauldron` section of `appsettings.json`.

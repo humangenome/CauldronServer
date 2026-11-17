@@ -3,6 +3,17 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.27] - 2026-11-17
+
+### Security
+- Every server query, server info included, now gets Valve's standard challenge first, and each address gets a limited number of replies a second. This stops anyone using the server to flood someone else. Server lists that follow the challenge work as before.
+
+### Changed
+- A world zip with no world in it, or one that would unpack past the server's limits or nearly fill its disk, is now refused before the server stops, so the world keeps running.
+
+### Fixed
+- Server lists and the health check show the Witchspire build again. Since June they said "unknown".
+
 ## [0.1.26] - 2026-11-14
 
 ### Fixed

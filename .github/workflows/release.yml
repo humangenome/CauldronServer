@@ -91,6 +91,12 @@ jobs:
           $publish = "src/server/CauldronServer/bin/Release/net10.0/win-x64/publish"
           if (-not (Test-Path "$publish/CauldronServer.exe")) { throw "server publish missing at $publish" }
 
+      # .NET 9 and later mark an exe CET-compatible by default, and such an exe refuses to start on some
+      # Windows builds ("Your Windows doesn't fully support CET"). Directory.Build.props turns it off.
+      # This reads the flag on the exe the README's publish line gives a self-hoster.
+      - name: The published exe is not marked CET-compatible
+        run: python scripts/check-cet-compat.py src/server/CauldronServer/bin/Release/net10.0/win-x64/publish/CauldronServer.exe
+
       - name: Extract changelog section
         id: changelog
         shell: pwsh

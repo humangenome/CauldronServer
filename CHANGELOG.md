@@ -3,6 +3,11 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.28] - 2026-11-20
+
+### Changed
+- The server now keeps at most the newest 20 snapshots, up to 8 GB in all (still none older than 30 days). MaxSnapshotsKept and MaxSnapshotBytes in appsettings.json change that.
+
 ## [0.1.27] - 2026-11-17
 
 ### Security

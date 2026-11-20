@@ -127,6 +127,27 @@ public sealed class HostLaunchPrepTests
         }
     }
 
+    // The host log filled with routine lines (the world save every 10 s, the game's HealthAttributeSet lines at about
+    // 4,000 an hour, the spawner and navigation warnings on a host with no graphics); the Engine.ini quiets those
+    // categories in one [Core.Log] section, and warnings and errors still print.
+    [Fact]
+    public void BuiltInEngineIniQuietsTheNoisyLogCategories()
+    {
+        var lines = HostPackageLaunchPrep.BuiltInEngineIni(17777).Split("\r\n");
+        Assert.Single(lines, l => l == "[Core.Log]");
+        var section = Array.IndexOf(lines, "[Core.Log]");
+        var body = lines.Skip(section + 1).TakeWhile(l => !l.StartsWith('[')).Where(l => l.Length > 0).ToList();
+        Assert.Equal(
+            new[] { "LogEasyMultiSave=Warning", "LogHercAbilitySystem=Warning", "LogHercSpawner=Error", "LogNavigation=Error", "LogPrimitiveComponent=Error" },
+            body);
+        // Never quiet the categories the panel, the supervisor and support read.
+        Assert.DoesNotContain(body, l => l.StartsWith("Cauldron", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(body, l => l.StartsWith("Angelscript", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(body, l => l.StartsWith("LogNet=", StringComparison.OrdinalIgnoreCase));
+        // Only Warning or Error: nothing is silenced outright.
+        Assert.All(body, l => Assert.Matches("^Log[A-Za-z]+=(Warning|Error)$", l));
+    }
+
     [Fact]
     public void BuiltInPrepWritesItsOwnEngineIniWhenThePackageShipsNoTemplate()
     {

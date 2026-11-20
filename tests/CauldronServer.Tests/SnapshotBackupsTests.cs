@@ -142,4 +142,92 @@ public sealed class SnapshotBackupsTests : IDisposable
         Assert.Equal("june", File.ReadAllText(Path.Combine(kept[0], "2026-06-22_10.46.19", "Actors.sav")));
         Assert.False(Directory.Exists(Path.Combine(newTree, "savegame_0")));
     }
+
+    // ---- 2026-11-18: nothing is moved out of a link ----
+
+    [Theory]
+    [InlineData("Backups")]
+    [InlineData("Backups/2026-06-22_10.46.19")]
+    public void A_link_in_the_old_saves_is_left_where_it_is_and_nothing_moves_through_it(string linkAt)
+    {
+        var outside = Path.Combine(_root, "outside");
+        Directory.CreateDirectory(Path.Combine(outside, "2026-01-01_00.00.00"));
+        File.WriteAllText(Path.Combine(outside, "2026-01-01_00.00.00", "Actors.sav"), "not part of the save");
+        var link = Path.Combine(World, linkAt.Replace('/', Path.DirectorySeparatorChar));
+        Directory.Delete(link, recursive: true);
+        MakeFolderLink(link, outside);
+        var newTree = Path.Combine(_root, "userdir", "Saved", "SaveGames.new");
+        Directory.CreateDirectory(Path.Combine(newTree, "savegame_0", "Backups"));
+
+        Assert.False(SaveOrchestratorService.KeepGameBackups(SaveGames, newTree, NullLogger.Instance));
+
+        Assert.Equal("not part of the save", File.ReadAllText(Path.Combine(outside, "2026-01-01_00.00.00", "Actors.sav")));
+        Assert.False(Directory.Exists(Path.Combine(newTree, "savegame_0", "Backups", "2026-01-01_00.00.00")));
+        Assert.True(RestoreFolders.IsLink(link), "the link is still where it was");
+        RemoveLink(link);
+    }
+
+    // ---- 2026-11-19 (Security): world-backups-kept is link-checked, and the folders are checked again right before ----
+
+    [Fact]
+    public void Backups_never_move_into_a_world_backups_kept_link()
+    {
+        var outside = Path.Combine(_root, "outside-kept");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "keep.txt"), "outside");
+        var newTree = Path.Combine(_root, "userdir", "Saved", "SaveGames.new");
+        Directory.CreateDirectory(newTree); // no savegame_0 in the restored saves: its backups would go to world-backups-kept
+        var keptRoot = Path.Combine(_root, "userdir", "Saved", "world-backups-kept");
+        MakeFolderLink(keptRoot, outside);
+
+        Assert.False(SaveOrchestratorService.KeepGameBackups(SaveGames, newTree, NullLogger.Instance));
+
+        Assert.Equal(new[] { "keep.txt" }, Directory.GetFileSystemEntries(outside).Select(Path.GetFileName).ToArray());
+        Assert.Equal("june", File.ReadAllText(Path.Combine(World, "Backups", "2026-06-22_10.46.19", "Actors.sav")));
+        RemoveLink(keptRoot);
+    }
+
+    [Fact]
+    public async Task A_link_put_at_world_backups_kept_before_the_backups_move_keeps_the_replaced_saves()
+    {
+        using var s = new RestoreTestServer();
+        var history = Path.Combine(s.Tree, "savegame_0", "Backups", "2026-01-01_00.00.00");
+        Directory.CreateDirectory(history);
+        File.WriteAllText(Path.Combine(history, "Actors.sav"), "history");
+        var kept = Path.Combine(s.SavedDir, "world-backups-kept");
+        s.Service.TestBeforeMove = step => { if (step == "keep-backups") s.MakeFolderLink(kept, s.Outside); };
+
+        Assert.True(await s.Restore(s.Zip("w.zip", withWorld: true)));
+
+        Assert.Equal("restored world", s.RestoredText());
+        s.OutsideUntouched();
+        var old = Assert.Single(Directory.GetDirectories(s.SavedDir, "SaveGames.old-*"));
+        Assert.Equal("history", File.ReadAllText(Path.Combine(old, "savegame_0", "Backups", "2026-01-01_00.00.00", "Actors.sav")));
+    }
+
+    private static void MakeFolderLink(string link, string target)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return;
+        }
+        var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var a in new[] { "/d", "/c", "mklink", "/J", link, target }) psi.ArgumentList.Add(a);
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        p.WaitForExit(30_000);
+        Assert.True(Directory.Exists(link), "could not make a folder link for the test");
+    }
+
+    private static void RemoveLink(string link)
+    {
+        if (OperatingSystem.IsWindows()) Directory.Delete(link, recursive: false);
+        else File.Delete(link);
+    }
 }

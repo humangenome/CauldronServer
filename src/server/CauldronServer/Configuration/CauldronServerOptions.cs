@@ -60,6 +60,19 @@ public sealed class CauldronServerOptions
     /// <summary>See <see cref="MaxRestoreUnpackedBytes"/>. 0 turns the free-space check off.</summary>
     public long RestoreFreeSpaceFloorBytes { get; set; } = 2L * 1024 * 1024 * 1024;
 
+    /// <summary>
+    /// Room for stored world backups in <see cref="SaveDir"/> (backups taken here, the copy each restore takes
+    /// first, and uploads): the newest <see cref="MaxSnapshotsKept"/> are kept while they fit in
+    /// <see cref="MaxSnapshotBytes"/> together, counted from the newest, and older ones are removed. 30 days
+    /// still removes any. The newest one, and one a restore is reading, are always kept. 0 turns that limit
+    /// off. Applied after every backup, upload and restore. 8 GB holds about ten of the largest Witchspire
+    /// worlds seen in November 2026 (about 750 MB zipped, without the game's own Backups history).
+    /// </summary>
+    public int MaxSnapshotsKept { get; set; } = 20;
+
+    /// <summary>See <see cref="MaxSnapshotsKept"/>.</summary>
+    public long MaxSnapshotBytes { get; set; } = 8L * 1024 * 1024 * 1024;
+
     public string RconPassword { get; set; } = "";
 
     /// <summary>

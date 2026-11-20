@@ -155,6 +155,17 @@ public sealed class HostPackageLaunchPrep : IHostLaunchPrep
             "",
             "[ConsoleVariables]",
             $"t.MaxFPS={HostFrameRate}",
+            "",
+            // Quiet the log categories that fill the host log with routine lines: the world save the host mod asks
+            // for every 10 s ("Player Actors have been saved"), the game's "Initializing Set HealthAttributeSet_N"
+            // lines (about 4,000 an hour on a busy host), and the spawner and navigation warnings of a host with no
+            // graphics. Warnings and errors still print.
+            "[Core.Log]",
+            "LogEasyMultiSave=Warning",
+            "LogHercAbilitySystem=Warning",
+            "LogHercSpawner=Error",
+            "LogNavigation=Error",
+            "LogPrimitiveComponent=Error",
         };
         var sb = new StringBuilder();
         foreach (var l in lines) sb.Append(l).Append("\r\n");

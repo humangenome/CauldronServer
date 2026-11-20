@@ -97,8 +97,8 @@ internal static class RestoreZipLimits
     }
 
     // ZipFile.ExtractToDirectory renames these characters to '_' on Windows; the unpack below writes the name as given,
-    // so a ':' would become an alternate data stream of another file. A Witchspire save never uses them (its own
-    // copies are named like 2026-11-14_10.33.00), so such a zip is refused before anything is stopped.
+    // so a ':' would become an alternate data stream of another file. A game's own save never uses them, so such a zip
+    // is refused before anything is stopped.
     internal static bool HasNameWindowsCannotStore(string fullName)
     {
         foreach (var ch in fullName)
@@ -110,7 +110,7 @@ internal static class RestoreZipLimits
 
     // Names Windows does not store as the plain file or folder they spell: a device name (CON, NUL, COM1 ...) opens the
     // device, with or without an extension ("nul.sav", "CON .txt"), and Windows drops a trailing dot or space, so
-    // "Actors.sav." lands on Actors.sav. Checked in every part of the path, both separators. A Witchspire save never uses them.
+    // "World.sav." lands on World.sav. Checked in every part of the path, both separators. A game's own save never uses them.
     private static readonly HashSet<string> DeviceNames = BuildDeviceNames();
 
     private static HashSet<string> BuildDeviceNames()
@@ -162,7 +162,9 @@ internal static class RestoreZipLimits
     /// Unpack every entry into <paramref name="destDir"/> (an empty staging folder), refusing any
     /// path that leaves it, and stopping with <see cref="InvalidDataException"/> as soon as an entry
     /// writes more than it stated or the total passes the cap. Same layout as
-    /// <c>ZipFile.ExtractToDirectory(..., overwriteFiles: true)</c>.
+    /// <c>ZipFile.ExtractToDirectory(..., overwriteFiles: true)</c>. Nothing is ever written through a
+    /// link: the staging folder and every folder the unpack makes under it are checked to be real
+    /// folders as they are made, and a file that is a link is never opened (<see cref="IOException"/>).
     /// </summary>
     internal static void ExtractWithinCaps(string zipPath, string destDir, Caps caps, long? freeBytes)
     {
@@ -173,6 +175,13 @@ internal static class RestoreZipLimits
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var root = Path.GetFullPath(destDir);
         if (!root.EndsWith(Path.DirectorySeparatorChar)) root += Path.DirectorySeparatorChar;
+        var rootProblem = RestoreFolders.EntryProblem(root);
+        if (rootProblem is not null || !Directory.Exists(root))
+            throw new IOException("The unpack stopped: " + (rootProblem ?? $"the folder {root} does not exist"));
+        var plainFolders = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+        {
+            Path.TrimEndingDirectorySeparator(root),
+        };
         var buffer = new byte[81920];
         long written = 0;
         foreach (var entry in archive.Entries)
@@ -183,10 +192,12 @@ internal static class RestoreZipLimits
             if (Path.GetFileName(target).Length == 0)
             {
                 if (entry.Length != 0) throw new IOException("A zip folder entry carries data.");
-                Directory.CreateDirectory(target);
+                MakePlainFolders(root, target, plainFolders);
                 continue;
             }
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            MakePlainFolders(root, Path.GetDirectoryName(target)!, plainFolders);
+            if (RestoreFolders.IsLink(target))
+                throw new IOException("The unpack stopped: " + target + " is a link or junction.");
             long thisEntry = 0;
             using (var src = entry.Open())
             using (var dst = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -204,6 +215,32 @@ internal static class RestoreZipLimits
                 }
             }
             try { File.SetLastWriteTime(target, entry.LastWriteTime.DateTime); } catch { /* as ExtractToFile: best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Make <paramref name="folder"/> under the unpack root one level at a time, checking each level is a real
+    /// folder (not a link, not a file) before anything goes into it. <paramref name="checkedFolders"/> holds the
+    /// levels already checked in this unpack, so each is looked at once.
+    /// </summary>
+    private static void MakePlainFolders(string root, string folder, HashSet<string> checkedFolders)
+    {
+        var top = Path.TrimEndingDirectorySeparator(root);
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+        if (checkedFolders.Contains(full)) return;
+        var current = top;
+        foreach (var part in Path.GetRelativePath(top, full).Split(
+                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == ".") continue;
+            current = Path.Combine(current, part);
+            if (checkedFolders.Contains(current)) continue;
+            if (RestoreFolders.EntryProblem(current) is string before)
+                throw new IOException("The unpack stopped: " + before);
+            Directory.CreateDirectory(current);
+            if (RestoreFolders.EntryProblem(current) is string after)
+                throw new IOException("The unpack stopped: " + after);
+            checkedFolders.Add(current);
         }
     }
 

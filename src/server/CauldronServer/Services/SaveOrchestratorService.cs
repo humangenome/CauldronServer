@@ -56,9 +56,26 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
     private long? RestoreFreeBytes()
     {
         if (_opts.RestoreFreeSpaceFloorBytes <= 0) return null;
-        var saved = Path.Combine(_opts.GameUserDir, "Saved");
-        return FreeSpaceProbe(saved);
+        return FreeSpaceProbe(SavedDir);
     }
+
+    private string SavedDir => Path.Combine(_opts.GameUserDir, "Saved");
+
+    /// <summary>
+    /// Tests only: runs right before each folder a restore makes, renames or deletes, with the step's name, so a
+    /// test can put a link in place at exactly that moment. Null otherwise.
+    /// </summary>
+    internal Action<string>? TestBeforeMove { get; set; }
+
+    /// <summary>
+    /// The one link a save folder may sit under (<see cref="SecondDriveRule"/>), for a user folder. Tests give it
+    /// stand-in drives; on a machine it is the server's own folder kept on a second drive.
+    /// </summary>
+    internal Func<string?, SecondDriveRule> FolderRule { get; set; } = SecondDriveRule.ForUserFolder;
+
+    // The zip a restore is reading right now: snapshot rotation never removes it.
+    private readonly object _restoreSourceGate = new();
+    private string? _restoreSource;
 
     /// <summary>True while the auto-snapshot watcher is on (tests and diagnostics).</summary>
     internal bool AutoSnapshotsOn => _watcher is not null;
@@ -230,7 +247,7 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
 
             var snapshotPath = Path.Combine(_opts.SaveDir, $"{snapshotId}.zip");
             var tmpPath = snapshotPath + ".tmp";
-            var linksLeftOut = CreateSaveGamesZip(sourceDir, tmpPath, SecondDriveRule.ForUserFolder(_opts.GameUserDir));
+            var linksLeftOut = CreateSaveGamesZip(sourceDir, tmpPath, FolderRule(_opts.GameUserDir));
             if (linksLeftOut.Count > 0)
                 _log.LogWarning("Snapshot {Id}: {Count} link(s) in the save folder were left out, not followed: {Links}",
                     snapshotId, linksLeftOut.Count, string.Join(", ", linksLeftOut.Take(10)));
@@ -261,26 +278,58 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
         }
     }
 
-    private void RotateOldSnapshots()
+    /// <summary>
+    /// Remove the snapshots past the room they may take, oldest first (<see cref="SnapshotBudget"/>: the newest
+    /// <c>MaxSnapshotsKept</c> within <c>MaxSnapshotBytes</c>, and 30 days). Runs after every snapshot, the
+    /// pre-restore copy included, and after every upload. The newest snapshot and one a restore is reading stay.
+    /// A zip is removed only when it sits directly in <c>SaveDir</c>, and its row goes with it.
+    /// </summary>
+    internal void RotateOldSnapshots()
     {
         try
         {
-            var snapshots = _db.ListSnapshots(int.MaxValue);
-            var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            foreach (var s in snapshots)
+            string? reading;
+            lock (_restoreSourceGate) reading = _restoreSource;
+            var items = _db.ListSnapshots(int.MaxValue)
+                .Select(s => new SnapshotBudget.Item(s.SnapshotId, s.TakenUnix, s.SizeBytes, s.RetentionDays, s.FilePath));
+            var keep = reading is null ? Array.Empty<string>() : new[] { reading };
+            foreach (var s in SnapshotBudget.ToRemove(items, DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                         _opts.MaxSnapshotsKept, _opts.MaxSnapshotBytes, keep))
             {
-                var ageSeconds = nowUnix - s.TakenUnix;
-                var maxSeconds = s.RetentionDays * 86_400;
-                if (ageSeconds <= maxSeconds) continue;
-                if (File.Exists(s.FilePath))
-                {
-                    try { File.Delete(s.FilePath); } catch { }
-                }
+                // The row stays while its zip does; the next pass tries again.
+                if (!TryRemoveSnapshotFile(s.FilePath)) continue;
+                _db.DeleteSnapshot(s.Id);
+                _log.LogInformation("Snapshot {Id} removed by rotation ({Bytes} bytes, taken {Taken:u})",
+                    s.Id, s.SizeBytes, DateTimeOffset.FromUnixTimeSeconds(s.TakenUnix));
             }
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Snapshot rotation pass failed");
+        }
+    }
+
+    // A snapshot zip is removed only when it sits directly in SaveDir, so a row can never send the removal anywhere
+    // else. File.Delete removes a link itself, never what it points to. A zip that is already gone counts as removed.
+    private bool TryRemoveSnapshotFile(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var dir = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_opts.SaveDir));
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            if (!string.Equals(Path.GetDirectoryName(full), dir, comparison) || Directory.Exists(full))
+            {
+                _log.LogWarning("Snapshot rotation left {Path} alone: it is not a file in the snapshot folder {Dir}", full, dir);
+                return false;
+            }
+            File.Delete(full);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Snapshot rotation could not remove {Path}", path);
+            return false;
         }
     }
 
@@ -360,16 +409,44 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             if (!System.Text.RegularExpressions.Regex.IsMatch(slotName, @"^savegame_\d+$",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase |
                     System.Text.RegularExpressions.RegexOptions.CultureInvariant)) continue;
+            // Nothing is moved out of a link (it could pull files from outside the save into it): a link stays in
+            // the old saves, and the old saves are kept.
+            if (RestoreFolders.IsLink(slot))
+            {
+                ok = false;
+                log.LogWarning("Left the link {Slot} in the old saves at {Old}; nothing is moved through a link", slot, oldSaveGamesDir);
+                continue;
+            }
             var oldBackups = Directory.EnumerateDirectories(slot)
                 .FirstOrDefault(d => string.Equals(Path.GetFileName(d), "Backups", StringComparison.OrdinalIgnoreCase));
             if (oldBackups is null) continue;
+            if (RestoreFolders.IsLink(oldBackups))
+            {
+                ok = false;
+                log.LogWarning("Left the link {Backups} in the old saves at {Old}; nothing is moved through a link", oldBackups, oldSaveGamesDir);
+                continue;
+            }
             try
             {
                 var newSlot = Path.Combine(newSaveGamesDir, slotName);
                 if (!Directory.Exists(newSlot))
                 {
                     var keptRoot = Path.Combine(Path.GetDirectoryName(newSaveGamesDir)!, "world-backups-kept");
+                    // Never moved into a link (Security, 11/19): a link or a file at world-backups-kept leaves the
+                    // backups in the old saves, which are then kept.
+                    if (RestoreFolders.EntryProblem(keptRoot) is string keptWhy)
+                    {
+                        ok = false;
+                        log.LogWarning("The game's backups of {Slot} stay in the old saves at {Old}: {Why}", slotName, oldSaveGamesDir, keptWhy);
+                        continue;
+                    }
                     Directory.CreateDirectory(keptRoot);
+                    if (RestoreFolders.EntryProblem(keptRoot) is string keptAfter)
+                    {
+                        ok = false;
+                        log.LogWarning("The game's backups of {Slot} stay in the old saves at {Old}: {Why}", slotName, oldSaveGamesDir, keptAfter);
+                        continue;
+                    }
                     var kept = Path.Combine(keptRoot, $"{slotName}-{DateTime.UtcNow:yyyyMMddTHHmmssZ}");
                     Directory.Move(oldBackups, kept);
                     log.LogInformation("Kept the game's backups of {Slot} at {Path}: the restored saves have no folder for that world", slotName, kept);
@@ -382,8 +459,19 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
                     Directory.Move(oldBackups, Path.Combine(newSlot, "Backups"));
                     continue;
                 }
+                if (RestoreFolders.IsLink(newBackups))
+                {
+                    ok = false;
+                    log.LogWarning("The restored saves have a link at {Backups}; the game's backups of {Slot} stay in the old saves at {Old}", newBackups, slotName, oldSaveGamesDir);
+                    continue;
+                }
                 foreach (var entry in Directory.EnumerateFileSystemEntries(oldBackups).ToList())
                 {
+                    if (RestoreFolders.IsLink(entry))
+                    {
+                        ok = false;
+                        continue;
+                    }
                     var target = Path.Combine(newBackups, Path.GetFileName(entry));
                     if (File.Exists(target) || Directory.Exists(target)) continue;
                     if (Directory.Exists(entry)) Directory.Move(entry, target);
@@ -504,6 +592,36 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             return false;
         }
 
+        // The folders the restore writes in, before stopping anything (2026-11-18): the Saved folder and every
+        // folder above it must be real folders (except the server's own folder kept on a second drive), and so
+        // must the live SaveGames folder. Checked again right before every folder is made, renamed or deleted.
+        var rule = FolderRule(_opts.GameUserDir);
+        var folderWhy = RestoreFolders.Problem(SavedDir, rule, out var realSaved);
+        var saveGamesDir = folderWhy is null ? Path.Combine(realSaved, "SaveGames") : "";
+        folderWhy ??= RestoreFolders.EntryProblem(saveGamesDir);
+        if (folderWhy is not null)
+        {
+            _log.LogWarning("Restore refused before stopping the game: {Why}; a restore never writes through a link", folderWhy);
+            return false;
+        }
+
+        lock (_restoreSourceGate) _restoreSource = Path.GetFullPath(zipPath);
+        try
+        {
+            return await StopAndSwapAsync(zipPath, requestedBy, auditAction, rule, realSaved, saveGamesDir, ct)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_restoreSourceGate) _restoreSource = null;
+        }
+        // gate released by `using` — supervisor will relaunch Witchspire on its
+        // next loop iteration.
+    }
+
+    private async Task<bool> StopAndSwapAsync(string zipPath, string requestedBy, string auditAction,
+        SecondDriveRule rule, string realSaved, string saveGamesDir, CancellationToken ct)
+    {
         // 1. Stop Witchspire first. Taking a snapshot BEFORE the kill would
         // capture whatever state Witchspire was mid-writing — which on a save
         // tick is half a savegame_0.sav. Kill, wait for exit, then snap.
@@ -517,15 +635,19 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             return false;
         }
 
-        // 3. Atomic SaveGames swap. Extract the incoming zip into a temp
-        // directory first; on success, rename the old SaveGames out of the
-        // way and rename the temp dir into place. If anything fails before
-        // the rename, the live SaveGames is untouched and the operation is
-        // a no-op rather than a corruption.
+        // 3. Atomic SaveGames swap, in the real Saved folder checked before the stop. Extract the incoming zip into
+        // a temp directory first; on success, rename the old SaveGames out of the way and rename the temp dir into
+        // place. If anything fails before the rename, the live SaveGames is untouched and the operation is a no-op
+        // rather than a corruption. Right before each folder is made, renamed or deleted, the Saved folder and the
+        // folders involved are checked again: a link that appeared stops the restore there.
         try
         {
-            var saveGamesDir = Path.Combine(_opts.GameUserDir, "Saved", "SaveGames");
-            Directory.CreateDirectory(Path.GetDirectoryName(saveGamesDir)!);
+            var savedDir = SavedDir;
+            void CheckFolders(string step, params string[] folders)
+            {
+                TestBeforeMove?.Invoke(step);
+                RestoreFolders.CheckBeforeMove(savedDir, rule, realSaved, folders);
+            }
 
             var stagingDir = saveGamesDir + ".incoming-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             var prevDir = saveGamesDir + ".old-" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -535,23 +657,44 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             bool savesMovedAside = false;
             try
             {
+                CheckFolders("make-staging", saveGamesDir, stagingDir, prevDir);
+                Directory.CreateDirectory(realSaved);
                 Directory.CreateDirectory(stagingDir);
-                // Entries may not escape the staging dir (zip-slip is an IOException), and the
-                // unpack stops the moment it writes more than the caps allow, whatever sizes the
+                CheckFolders("unpack", stagingDir);
+                // Entries may not escape the staging dir (zip-slip is an IOException), nothing is written through
+                // a link, and the unpack stops the moment it writes more than the caps allow, whatever sizes the
                 // zip states; the staging dir is the sandbox and is removed on any failure below.
                 RestoreZipLimits.ExtractWithinCaps(zipPath, stagingDir, RestoreCaps, RestoreFreeBytes());
 
                 if (Directory.Exists(saveGamesDir))
                 {
+                    CheckFolders("move-live-aside", saveGamesDir, prevDir);
                     Directory.Move(saveGamesDir, prevDir);
                     savesMovedAside = true;
                 }
+                CheckFolders("move-incoming-in", stagingDir, saveGamesDir);
                 Directory.Move(stagingDir, saveGamesDir);
                 if (Directory.Exists(prevDir))
                 {
-                    if (KeepGameBackups(prevDir, saveGamesDir, _log))
+                    // The folder check again right before the game's backups move (Security, 11/19), with the
+                    // folder they may move into. The new world is already in place, so a failed check keeps the
+                    // replaced saves (and their backups) where they are instead of failing the restore.
+                    string? keepWhy = null;
+                    try { CheckFolders("keep-backups", prevDir, saveGamesDir, Path.Combine(realSaved, "world-backups-kept")); }
+                    catch (IOException ex) { keepWhy = ex.Message; }
+                    if (keepWhy is not null)
+                        _log.LogWarning("The game's backups stay in the replaced saves at {Prev}: {Why}", prevDir, keepWhy);
+                    else if (KeepGameBackups(prevDir, saveGamesDir, _log))
                     {
-                        try { Directory.Delete(prevDir, recursive: true); } catch { /* best effort */ }
+                        try
+                        {
+                            CheckFolders("delete-old", prevDir);
+                            RestoreFolders.DeleteTree(prevDir);
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.LogWarning(ex, "The replaced saves were left at {Prev}", prevDir);
+                        }
                     }
                 }
             }
@@ -562,7 +705,11 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
                 // original so the customer doesn't end up with NO save dir.
                 if (savesMovedAside && Directory.Exists(prevDir) && !Directory.Exists(saveGamesDir))
                 {
-                    try { Directory.Move(prevDir, saveGamesDir); }
+                    try
+                    {
+                        CheckFolders("rollback", saveGamesDir, prevDir);
+                        Directory.Move(prevDir, saveGamesDir);
+                    }
                     catch (Exception rollbackEx)
                     {
                         _log.LogError(rollbackEx,
@@ -573,7 +720,12 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
                 }
                 if (Directory.Exists(stagingDir))
                 {
-                    try { Directory.Delete(stagingDir, recursive: true); } catch { }
+                    try
+                    {
+                        CheckFolders("delete-staging", stagingDir);
+                        RestoreFolders.DeleteTree(stagingDir);
+                    }
+                    catch { }
                 }
                 _log.LogError(ex, "Restore failed; SaveGames rolled back from {Prev}", prevDir);
                 throw;
@@ -609,7 +761,5 @@ public sealed class SaveOrchestratorService : IHostedService, IDisposable
             _log.LogError(ex, "Restore failed while swapping SaveGames");
             return false;
         }
-        // gate released by `using` — supervisor will relaunch Witchspire on its
-        // next loop iteration.
     }
 }

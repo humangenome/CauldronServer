@@ -417,6 +417,49 @@ public sealed class RestoreZipLimitsTests : IDisposable
         Assert.Equal(top, RestoreZipLimits.LongestMountOf(data + "x" + sep + "Saved", mounts));
     }
 
+    // ---- 2026-11-18: the unpack never writes through a link ----
+
+    private string OutsideWithOneFile()
+    {
+        var outside = Path.Combine(_root, "outside");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "outside.txt"), "not part of any save");
+        return outside;
+    }
+
+    private static void OutsideHoldsOnlyItsFile(string outside) =>
+        Assert.Equal(new[] { "outside.txt" },
+            Directory.GetFileSystemEntries(outside, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray());
+
+    [Fact]
+    public void The_unpack_refuses_a_staging_folder_that_is_a_link()
+    {
+        var outside = OutsideWithOneFile();
+        var zip = Zip("plain.zip", withWorld: true);
+        var dest = Path.Combine(_root, "staging-link");
+        MakeDirectoryLink(dest, outside);
+        var caps = new RestoreZipLimits.Caps(1024 * KiB, 20, 512 * KiB, 0);
+
+        Assert.Throws<IOException>(() => RestoreZipLimits.ExtractWithinCaps(zip, dest, caps, null));
+
+        OutsideHoldsOnlyItsFile(outside);
+    }
+
+    [Fact]
+    public void The_unpack_never_writes_into_a_link_inside_the_staging_folder()
+    {
+        var outside = OutsideWithOneFile();
+        var zip = Zip("into-link.zip", withWorld: true, ("savegame_0/linked/x.bin", 2 * KiB));
+        var dest = Path.Combine(_root, "unpack-into-link");
+        Directory.CreateDirectory(Path.Combine(dest, "savegame_0"));
+        MakeDirectoryLink(Path.Combine(dest, "savegame_0", "linked"), outside);
+        var caps = new RestoreZipLimits.Caps(1024 * KiB, 20, 512 * KiB, 0);
+
+        Assert.Throws<IOException>(() => RestoreZipLimits.ExtractWithinCaps(zip, dest, caps, null));
+
+        OutsideHoldsOnlyItsFile(outside);
+    }
+
     // A directory link: a symbolic link, or on Windows without that right a junction (mklink /J needs no right).
     private static void MakeDirectoryLink(string link, string target)
     {

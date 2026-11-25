@@ -13,8 +13,25 @@ jobs:
     name: Build CauldronServer (windows-latest)
     runs-on: windows-latest
     timeout-minutes: 20
+    # The tag reaches the shell only through this variable, always quoted. Git
+    # allows $, ( ), ;, & and backticks in a tag name, so the tag is never
+    # written into a script line.
+    env:
+      TAG: ${{ github.ref_name }}
 
     steps:
+      # First step, before anything else runs: refuse any tag that is not a
+      # release version. Every tag this repo has published is v and three numbers.
+      - name: Check tag
+        shell: bash
+        run: |
+          pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "${TAG}" =~ ${pattern} ]]; then
+            echo "::error::refusing this tag: a release tag here is v and three numbers, like v1.2.3"
+            exit 1
+          fi
+          echo "tag ${TAG} is a release version"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -75,7 +92,7 @@ jobs:
       - name: Verify server version stamp
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:TAG
           $version = $tag.TrimStart('v')
           $numeric = ($version -split '-')[0]
           $publish = "src/server/CauldronServer/bin/Release/net10.0/win-x64/publish"
@@ -95,7 +112,7 @@ jobs:
         id: changelog
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = $env:TAG
           $version = $tag.TrimStart('v')
           $content = Get-Content CHANGELOG.md -Raw
           $pattern = "(?ms)## \[$([regex]::Escape($version))\][^\n]*\n(.*?)(?=\n## |\z)"
@@ -140,8 +157,22 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # As in the first job: the tag reaches the shell only through this variable.
+    env:
+      TAG: ${{ github.ref_name }}
 
     steps:
+      # First step of this job too, so it never relies on the other job's check.
+      - name: Check tag
+        shell: bash
+        run: |
+          pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "${TAG}" =~ ${pattern} ]]; then
+            echo "::error::refusing this tag: a release tag here is v and three numbers, like v1.2.3"
+            exit 1
+          fi
+          echo "tag ${TAG} is a release version"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -151,7 +182,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"
           ASSET="Cauldron-Server-Windows-x64-${TAG}.zip"
 
           found=""

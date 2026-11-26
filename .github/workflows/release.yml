@@ -5,7 +5,8 @@ on:
     tags:
       - 'v*.*.*'
 
-# Read-only by default; only the build job, which creates this repo's release, may write contents.
+# Read-only by default. The build job checks the hand-made draft release and the verify job reads it;
+# both need contents: write, because GitHub shows a draft release only to callers that can write.
 permissions:
   contents: read
 
@@ -36,9 +37,30 @@ jobs:
           echo "tag ${TAG} is a release version"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+
+      # Security 2026-11-26: a release must hold the release before it. The previous release tag
+      # (every v-and-three-numbers tag counts, pre-releases included) must be in the history of the
+      # commit being tagged, or the run stops and names it. Twice a candidate was built on the release
+      # before last and would have dropped the last one's fixes.
+      - name: The previous release tag is in this commit's history
+        shell: bash
+        run: |
+          set -euo pipefail
+          prev="$(git tag -l 'v*' | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/' \
+            | { cat; printf '%s\n' "${TAG}"; } | sort -u -V \
+            | awk -v t="${TAG}" '$0 == t { print p; exit } { p = $0 }')"
+          if [ -z "${prev}" ]; then
+            echo "no release tag before ${TAG}: nothing to check"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "${prev}" "${GITHUB_SHA}"; then
+            echo "::error::refusing ${TAG}: the previous release tag ${prev} is not in the history of the commit being tagged; build ${TAG} on ${prev}"
+            exit 1
+          fi
+          echo "the previous release tag ${prev} is in the history of ${GITHUB_SHA}"
 
       - name: Guard the published source
         shell: bash
@@ -69,7 +91,7 @@ jobs:
           echo "clean"
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           global-json-file: global.json
 
@@ -136,16 +158,43 @@ jobs:
           $body = "## Server`n`n" + $notes + $hosting
           $body | Out-File -FilePath release-body.md -Encoding utf8
 
-      - name: Create GitHub release (CauldronServer)
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          body_path: release-body.md
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          # The release is created in this repo, so the workflow's own token is enough
-          # (this job has permissions: contents: write). No account token on this step
-          # (Security 2026-11-25), so the release page names github-actions[bot] as author.
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # The release page is made BY HAND, as a draft, before the tag (Security 2026-11-25), with exactly
+      # the body built above from CHANGELOG.md. This repo builds no release file of its own: the Cauldron
+      # build fills the draft with the host package. So this step only checks that the one draft is in
+      # place: it never creates, publishes or edits a release and never touches Latest. GitHub's look-up
+      # of a release by tag answers 404 for a draft, which is why the release action is gone.
+      - name: The hand-made draft release is in place (CauldronServer)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rels="$(gh api "repos/${REPO}/releases?per_page=100" --paginate \
+            | jq -s --arg t "${TAG}" 'add // [] | map(select(.tag_name == $t))')"
+          n="$(jq 'length' <<<"${rels}")"
+          if [ "${n}" -ne 1 ]; then
+            echo "::error::expected exactly one release for ${TAG} (a draft made by hand first), found ${n}"
+            exit 1
+          fi
+          if [ "$(jq -r '.[0].draft' <<<"${rels}")" != "true" ]; then
+            echo "::error::the release for ${TAG} is already published; a tag here only ever meets a hand-made draft"
+            exit 1
+          fi
+          jq -r '.[0].body // ""' <<<"${rels}" > draft-body.md
+          same="$(jq -n --rawfile a draft-body.md --rawfile b release-body.md \
+            '($a | ltrimstr("﻿") | gsub("\r"; "") | sub("\\s+$"; "")) == ($b | ltrimstr("﻿") | gsub("\r"; "") | sub("\\s+$"; ""))')"
+          if [ "${same}" != "true" ]; then
+            echo "::error::the draft's text differs from the body built from CHANGELOG.md; fix the draft by hand"
+            exit 1
+          fi
+          others="$(jq -r --arg z "Cauldron-Server-Windows-x64-${TAG}.zip" \
+            '.[0].assets[].name | select(. != $z and . != "checksums.txt")' <<<"${rels}")"
+          if [ -n "${others}" ]; then
+            echo "::error::the draft holds files no release run attaches: ${others}"
+            exit 1
+          fi
+          echo "Draft ${TAG} (release $(jq -r '.[0].id' <<<"${rels}")) is in place; the Cauldron build fills it."
 
   # Fail-closed backstop. The release page is only correct once the host package
   # is attached to it, and that attachment happens from the Cauldron build. If it
@@ -153,9 +202,12 @@ jobs:
   # -- this job fails loudly instead of leaving a release that looks finished and
   # hands self-hosters an archive that cannot open a joinable world.
   verify-bundle:
-    name: Verify the published host package
+    name: Verify the host package on the draft
     needs: build
     runs-on: ubuntu-latest
+    # Write only because GitHub shows a draft release to writers alone; every step here only reads.
+    permissions:
+      contents: write
     timeout-minutes: 20
     # As in the first job: the tag reaches the shell only through this variable.
     env:
@@ -174,7 +226,7 @@ jobs:
           echo "tag ${TAG} is a release version"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Wait for the host package and verify it
         shell: bash
@@ -204,16 +256,12 @@ jobs:
 
           gh release download "$TAG" -R "${{ github.repository }}" -p "$ASSET" -D verify --clobber
           python3 scripts/verify-server-bundle.py "verify/$ASSET"
+          if [[ "$(gh api "repos/${{ github.repository }}/releases?per_page=100" --paginate \
+                | jq -s --arg t "$TAG" '[add // [] | .[] | select(.tag_name == $t and .draft)] | length')" -ne 1 ]]; then
+            echo "ERROR: $TAG must still be one unpublished draft after the host package check" >&2
+            exit 1
+          fi
 
-  # Last job: scan the release this run just published. It is created with the
-  # workflow's own token, which starts no other workflow, so the release-event
-  # scan would not run for it; the daily scan in artifact-scan.yml stays as well
-  # (Security 2026-11-25). Read-only and given no secrets.
-  scan:
-    name: Scan the published release
-    needs: [build, verify-bundle]
-    permissions:
-      contents: read
-    uses: ./.github/workflows/artifact-scan.yml
-    with:
-      tag: ${{ github.ref_name }}
+  # No scan job here: the release stays a draft until it is published by hand, and a read-only
+  # scan cannot see a draft. The draft is scanned by hand before it is published; artifact-scan.yml's
+  # daily run covers it once published.

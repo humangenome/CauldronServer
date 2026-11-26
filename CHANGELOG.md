@@ -3,6 +3,14 @@
 All notable changes to CauldronServer are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.29] - Unreleased
+
+### Changed
+- Only automatic backups are removed to make room. They now share up to 512 MB, or less on a nearly full drive, with no limit on how many. Backups you make or upload never count toward it. A new backup is refused if it would leave less than 2 GB free on the drive.
+
+### Fixed
+- World backups you make or upload are no longer deleted after 30 days. Neither are the copies made before a restore, or any backup you already have.
+
 ## [0.1.28] - 2026-11-20
 
 ### Changed
